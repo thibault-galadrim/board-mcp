@@ -53,6 +53,8 @@ func agentPlist(bin, boardHome, addr string) string {
 	<integer>10</integer>
 	<key>LimitLoadToSessionType</key>
 	<string>Aqua</string>
+	<key>Umask</key>
+	<integer>63</integer>
 	<key>StandardOutPath</key>
 	<string>` + xmlText(filepath.Join(boardHome, "daemon.log")) + `</string>
 	<key>StandardErrorPath</key>
