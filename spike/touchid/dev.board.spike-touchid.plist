@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>dev.board.spike-touchid</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/thibault/code/board/bin/touchid</string>
+		<string>serve</string>
+		<string>127.0.0.1:7390</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/Users/thibault/code/board/bin/touchid.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/thibault/code/board/bin/touchid.log</string>
+</dict>
+</plist>
