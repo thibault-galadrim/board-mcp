@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const agentLabel = "dev.board.daemon"
@@ -148,9 +149,7 @@ func runInstall() error {
 	if err := os.WriteFile(plist, []byte(agentPlist(bin, boardDir, addr)), 0o644); err != nil {
 		return err
 	}
-	domain := fmt.Sprintf("gui/%d", os.Getuid())
-	_ = run("launchctl", "bootout", domain+"/"+agentLabel)
-	if err := run("launchctl", "bootstrap", domain, plist); err != nil {
+	if err := restartAgent(plist); err != nil {
 		return err
 	}
 
@@ -170,6 +169,28 @@ Une invite Touch ID va te demander de déverrouiller le board.
 Les nouvelles sessions Claude voient le board ; une session déjà ouverte le verra une fois relancée.
 `, bin, boardDir, plist)
 	return nil
+}
+
+// restartAgent replaces a running daemon. bootout returns before launchd
+// has unloaded the service, and bootstrapping it meanwhile fails with an
+// I/O error: wait for the old one to be gone, and retry a few times.
+func restartAgent(plist string) error {
+	service := fmt.Sprintf("gui/%d/%s", os.Getuid(), agentLabel)
+	_ = run("launchctl", "bootout", service)
+	for range 50 {
+		if run("launchctl", "print", service) != nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	var err error
+	for range 5 {
+		if err = run("launchctl", "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), plist); err == nil {
+			return nil
+		}
+		time.Sleep(time.Second)
+	}
+	return err
 }
 
 func runUninstall() error {
