@@ -112,7 +112,7 @@ func TestPreview(t *testing.T) {
 
 	opts := DefaultOptions()
 	opts.UnlockAtStart = false
-	opts.PromptOnRequest = false
+	opts.Prompt = PromptNever
 	srv := New(svc, &portIdentities{ports: map[int]string{}}, slowApprover{}, &fakeNotifier{}, "preview-token", opts, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ln, err := net.Listen("tcp", "127.0.0.1:"+envOr("BOARD_PREVIEW_PORT", "7393"))
 	if err != nil {

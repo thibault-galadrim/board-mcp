@@ -335,6 +335,8 @@ func printOutcome(o board.Outcome) {
 	switch o.Status {
 	case board.StatusPendingApproval:
 		fmt.Printf("en attente de ta validation : demande #%d, %s\n", o.Request.ID, o.Request.Summary)
+	case board.StatusRefused:
+		fmt.Printf("demande #%d refusée : %s\n", o.Request.ID, o.Request.Summary)
 	case board.StatusOK:
 		if o.Ticket != nil {
 			fmt.Println(line(*o.Ticket))

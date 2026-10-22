@@ -54,9 +54,9 @@ Thibault, plus toute session qui a créé, distribué ou pris en charge le ticke
 
 ### Modes (inspirés des modes de permission de Claude Code)
 
-Un mode par défaut pour tout le board, ajustable projet par projet.
+Un mode par défaut pour tout le board, ajustable projet par projet. **Le défaut est Auto** depuis le premier essai réel du 22/10 : en Demande partout, le flot d'invites faisait valider sans lire, ce qui est exactement la faille qu'un agent manipulé exploiterait. Un projet sensible peut rester en Demande.
 
-| Action | Demande (défaut) | Auto | Tout permis |
+| Action | Demande | Auto (défaut) | Tout permis |
 |---|---|---|---|
 | Ajouter, écrire une note, déposer une trouvaille | libre | libre | libre |
 | Signaler l'avancement (bloqué, à valider, reprise) | cercle | cercle | cercle |
@@ -79,6 +79,7 @@ La matrice est un réglage. On peut ajouter un mode ou modifier une case.
 - **En différé** : la demande attend dans la page (boutons Valider et Refuser), ou dans le terminal avec `board ok <id>` / `board refuse <id>`.
 - **Preuve** : chaque validation déclenche un **Touch ID** affiché par le démon, d'où qu'elle parte. C'est réglable : par exemple, Touch ID seulement pour le sensible.
 - **Seule autorité : le Touch ID posé en direct.** La base ne contient aucun droit. Une validation n'existe qu'au moment où le démon reçoit le Touch ID et exécute l'action dans la foulée. Il n'y a donc rien à falsifier dans la base.
+- **Quelles demandes déclenchent l'invite tout de suite** (réglable : `owner`, `always`, `never`) : par défaut, seulement ce que le propriétaire a déclenché lui-même, c'est-à-dire sa commande `board`, un bouton de la page, ou une action qu'une session marque `owner_asked` parce qu'il vient de la lui dicter. Une session manipulée qui mettrait `owner_asked` à tort n'obtient qu'une invite, rare donc lue. Tout le reste attend dans la file, avec une notification.
 - **Attente sans boucle** : la session lance `board wait <id>` en tâche de fond. Ça ne coûte rien, et Claude Code la réveille quand la commande se termine.
 - Une prise validée reste atomique : si quelqu'un d'autre a pris le ticket entre-temps, elle est refusée.
 

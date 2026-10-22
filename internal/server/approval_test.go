@@ -54,7 +54,7 @@ func (f *fakeApprover) lastReason() string {
 	return f.reasons[len(f.reasons)-1]
 }
 
-var prompting = Options{PromptOnRequest: true, ApprovalWait: 300 * time.Millisecond, UnlockWait: 300 * time.Millisecond}
+var prompting = Options{Prompt: PromptAlways, ApprovalWait: 300 * time.Millisecond, UnlockWait: 300 * time.Millisecond}
 
 func (e *env) post(t *testing.T, identityKey, path string) (int, map[string]any) {
 	t.Helper()
@@ -205,3 +205,33 @@ func TestBoardStaysLockedUntilTheOwnerUnlocks(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestOnlyOwnerTriggeredRequestsPrompt(t *testing.T) {
+	approver := &fakeApprover{}
+	opts := prompting
+	opts.Prompt = PromptOwner
+	opts.Notify = DefaultOptions().Notify
+	e := newEnvWith(t, approver, opts)
+	agent := e.client(t, "claude:A", nil)
+
+	queued, _ := call[board.Outcome](t, agent, "board_add", map[string]any{"as": "worker-1", "project": "atlas", "title": "spontané", "todo": true})
+	if queued.Status != board.StatusPendingApproval || approver.lastReason() != "" {
+		t.Fatalf("a request the owner did not ask for must queue silently, got %+v / prompt %q", queued, approver.lastReason())
+	}
+	if sent := e.notes.all(); len(sent) != 1 || !strings.HasPrefix(sent[0], "Demande en attente") {
+		t.Fatalf("the queued request must be notified, got %q", sent)
+	}
+
+	approver.script(touchid.Approved)
+	asked, _ := call[board.Outcome](t, agent, "board_add", map[string]any{"as": "worker-1", "project": "atlas", "title": "dicté", "todo": true, "owner_asked": true})
+	if asked.Status != board.StatusOK || asked.Ticket.State != board.StateTodo {
+		t.Fatalf("an action the owner just dictated prompts at once, got %+v", asked)
+	}
+
+	approver.script(touchid.Approved)
+	owner := e.client(t, identity.Terminal, nil)
+	mine, _ := call[board.Outcome](t, owner, "board_add", map[string]any{"as": "cli", "project": "atlas", "title": "de mon terminal", "todo": true})
+	if mine.Status != board.StatusOK {
+		t.Fatalf("the owner's terminal prompts at once, got %+v", mine)
+	}
+}

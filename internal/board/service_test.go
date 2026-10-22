@@ -50,6 +50,7 @@ func newHarness(t *testing.T, mutate func(*Settings)) *harness {
 	}
 	t.Cleanup(func() { db.Close() })
 	settings := DefaultSettings()
+	settings.DefaultMode = "demande"
 	settings.WritesPerMinute = 10_000
 	if mutate != nil {
 		mutate(&settings)
@@ -539,6 +540,18 @@ func TestTransitions(t *testing.T) {
 		got, err := transitionAction(c.kind, c.from, c.to)
 		if got != c.want || (c.want == "") != (err != nil) {
 			t.Errorf("%s %s→%s: got %q, %v", c.kind, c.from, c.to, got, err)
+		}
+	}
+}
+
+func TestDefaultModeIsAuto(t *testing.T) {
+	s := DefaultSettings()
+	if s.DefaultMode != "auto" {
+		t.Fatalf("arbitrated default is auto, got %s", s.DefaultMode)
+	}
+	for _, a := range []Action{ActTriage, ActCreateProject, ActRebindName} {
+		if s.rule("any", a) != RuleApproval {
+			t.Errorf("%s must still need the owner in auto", a)
 		}
 	}
 }

@@ -71,7 +71,7 @@ func DefaultSettings() Settings {
 
 	return Settings{
 		OwnerName:   "Thibault",
-		DefaultMode: "demande",
+		DefaultMode: "auto",
 		Modes: map[string]map[Action]Rule{
 			"demande":     demande,
 			"auto":        auto,

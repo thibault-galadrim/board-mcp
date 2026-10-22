@@ -14,7 +14,7 @@ Working on tickets:
 - When the owner asks you to note a task for them or remind them of something, board_add it with kind="reminder". Reminders are the owner's own tasks: never execute them, and mention the due ones in your status updates.
 - When the owner asks you to put a task on the board for sessions, board_add it with todo=true.
 
-Approvals: depending on the project's mode, some actions need the owner's approval. The board asks them for Touch ID right away: if they approve, your call simply succeeds; if they refuse, it says so, do not insist. If they do not answer in time, the call returns status "pending_approval" with a request id: tell the owner, then run `board wait <id>` in the background (it exits once they decide) instead of retrying.
+Approvals: depending on the project's mode, some actions need the owner's approval. If the owner asked you for this exact action in this conversation, pass owner_asked=true: they get the Touch ID prompt right away and your call succeeds once they approve (if they refuse, do not insist). Never set owner_asked otherwise. Without it, or if they do not answer in time, the call returns status "pending_approval" with a request id: the owner is notified; run `board wait <id>` in the background (it exits once they decide) instead of retrying, and carry on with something else meanwhile.
 
 If the board says it is locked, tell the owner to run `board unlock`.
 

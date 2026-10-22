@@ -80,6 +80,7 @@ func newEnvWith(t *testing.T, approver Approver, opts Options, mutate ...func(*b
 	}
 	t.Cleanup(func() { db.Close() })
 	settings := board.DefaultSettings()
+	settings.DefaultMode = "demande"
 	for _, m := range mutate {
 		m(&settings)
 	}

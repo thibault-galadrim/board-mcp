@@ -36,11 +36,22 @@ type Approver interface {
 	Proof() string
 }
 
+// PromptPolicy decides which fresh requests show the Touch ID prompt at
+// once, while the session's call waits up to ApprovalWait. The others wait
+// in the queue: the owner is notified and decides from the page or the CLI.
+type PromptPolicy string
+
+const (
+	// PromptOwner prompts only for what the owner triggered: their terminal,
+	// or a session passing owner_asked for an action they just dictated.
+	PromptOwner  PromptPolicy = "owner"
+	PromptAlways PromptPolicy = "always"
+	PromptNever  PromptPolicy = "never"
+)
+
 type Options struct {
-	// PromptOnRequest asks the owner as soon as a request is filed, while
-	// the session's call waits up to ApprovalWait for the answer.
-	PromptOnRequest bool
-	ApprovalWait    time.Duration
+	Prompt       PromptPolicy
+	ApprovalWait time.Duration
 	// UnlockAtStart keeps the board closed until the owner confirms the
 	// active settings at startup.
 	UnlockAtStart bool
@@ -50,7 +61,7 @@ type Options struct {
 
 func DefaultOptions() Options {
 	return Options{
-		PromptOnRequest: true, ApprovalWait: 45 * time.Second, UnlockAtStart: true, UnlockWait: 2 * time.Minute,
+		Prompt: PromptOwner, ApprovalWait: 45 * time.Second, UnlockAtStart: true, UnlockWait: 2 * time.Minute,
 		Notify: NotifyOptions{Blocked: true, ToValidate: true, Done: true, Inbox: true, PendingRequest: true, Deadline: true, DeadlineHour: 9},
 	}
 }
@@ -166,7 +177,7 @@ func (s *Server) confirmRequest(ctx context.Context, r board.Request, cancelRefu
 	case d == touchid.Approved:
 		out, err = s.svc.Approve(bg, r.ID, s.approver.Proof())
 	case d == touchid.Refused && cancelRefuses:
-		out, err = s.svc.Refuse(bg, r.ID, "refusé à l'invite", s.approver.Proof())
+		out, err = s.svc.Refuse(bg, r.ID, "refusé à l'invite", "")
 	default:
 		return board.Outcome{}, false
 	}
@@ -187,19 +198,29 @@ func reasonFor(r board.Request) string {
 	return fmt.Sprintf("valider la demande #%d de %s : %s", r.ID, who, r.Summary)
 }
 
+func (s *Server) shouldPrompt(c board.Caller, ownerAsked bool) bool {
+	switch s.opts.Prompt {
+	case PromptAlways:
+		return true
+	case PromptOwner:
+		return c.Terminal || ownerAsked
+	}
+	return false
+}
+
 // settle gives the owner the chance to answer a fresh request while the
-// session's call waits.
-func (s *Server) settle(ctx context.Context, out board.Outcome) board.Outcome {
+// session's call waits, or queues it with a notification.
+func (s *Server) settle(ctx context.Context, out board.Outcome, prompt bool) board.Outcome {
 	if out.Status != board.StatusPendingApproval || out.Request == nil {
 		return out
 	}
-	if s.opts.PromptOnRequest {
+	if prompt {
 		if decided, ok := s.confirmRequest(ctx, *out.Request, true); ok {
 			return decided
 		}
 	}
 	s.notifyPending(*out.Request)
-	out.Message = fmt.Sprintf("%s has not answered yet. Request #%d stays pending: tell them, and run `board wait %d` in the background (it exits once they decide) instead of retrying.",
+	out.Message = fmt.Sprintf("%s has not decided yet. Request #%d waits for them (they are notified): run `board wait %d` in the background, it exits once they decide. Do not retry.",
 		s.svc.Settings().OwnerName, out.Request.ID, out.Request.ID)
 	return out
 }
