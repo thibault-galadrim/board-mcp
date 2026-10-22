@@ -163,10 +163,15 @@ Niveaux écartés le 22/10, réutilisables plus tard :
 
 1. Les deux MCP Grafana lancent un `docker run` par session : 18 conteneurs, soit environ 340 Mo dans la VM Docker le 22/10. Les passer en un seul conteneur partagé.
 
-## Ouvert (plus tard)
+## Arbitrages du 22/10 (après la mise en service)
 
-- Valider quand le propriétaire n'est pas devant le Mac (il suit souvent ses sessions depuis son téléphone) : aujourd'hui, les demandes attendent son retour et le board reste verrouillé.
-
-- Partage avec un collègue (page, dépôt distant).
-- Notification Slack en plus de macOS.
-- Nom définitif (« board » est provisoire), port d'écoute.
+| # | Décision | Qualification |
+|---|---|---|
+| 1 | Valider depuis le téléphone : non, les demandes attendent le retour au Mac | inchangé |
+| 2 | Notifications Slack : pas maintenant, le démon n'appelle toujours pas internet | inchangé |
+| 3 | Partage avec un collègue : après quelques jours de rodage | plus tard |
+| 4 | Sauvegarde : copie quotidienne cohérente de la base dans `~/.board/backups/`, 7 gardées | fait |
+| 5 | Nom : « board » est gardé | inchangé |
+| 6 | Silences : visibles dans la page et le « quoi de neuf », sans notification | inchangé |
+| 7 | Ticket n°4 (conception) : passé à valider, les suites deviennent des tickets séparés | fait |
+| 8 | Page : un onglet par projet plus « Pour toi », l'onglet dans l'adresse ; Clore (Touch ID) et Renvoyer (avec commentaire, action `send_back` libre par défaut) sur les tickets à valider | fait |

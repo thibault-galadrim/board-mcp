@@ -64,6 +64,7 @@ const (
 	opAssign        opKind = "assign"
 	opCreateProject opKind = "create_project"
 	opMove          opKind = "move"
+	opSendBack      opKind = "send_back"
 	opRebind        opKind = "rebind"
 )
 
@@ -122,6 +123,12 @@ func (s *Service) Claim(ctx context.Context, c Caller, id int64, forName string)
 
 func (s *Service) Assign(ctx context.Context, c Caller, id int64, to, reason string) (Outcome, error) {
 	return s.run(ctx, c, op{Kind: opAssign, TicketID: id, To: to, Reason: reason})
+}
+
+// SendBack returns a ticket awaiting validation to the session working on
+// it, with the reason.
+func (s *Service) SendBack(ctx context.Context, c Caller, id int64, text string) (Outcome, error) {
+	return s.run(ctx, c, op{Kind: opSendBack, TicketID: id, Text: text})
 }
 
 // Move puts an open ticket, with its sub-tickets, in another project.
@@ -311,6 +318,22 @@ func (s *Service) plan(ctx context.Context, tx *sql.Tx, c Caller, o op) (plan, e
 		return plan{action: ActReassign, project: t.Project, ticket: &t,
 			summary: fmt.Sprintf("passer %s de %s à %s : %s", t.ref(), t.Owner, o.To, o.Reason)}, nil
 
+	case opSendBack:
+		t, err := s.getTicket(ctx, tx, o.TicketID)
+		if err != nil {
+			return plan{}, err
+		}
+		if t.State != StateToValidate {
+			return plan{}, invalidf("ticket #%d is %s: only a ticket awaiting validation is sent back", t.ID, t.State)
+		}
+		if strings.TrimSpace(o.Text) == "" {
+			return plan{}, invalidf("say what is missing: the session reads it to resume")
+		}
+		if err := validateText(o.Text); err != nil {
+			return plan{}, err
+		}
+		return plan{action: ActSendBack, project: t.Project, ticket: &t, summary: fmt.Sprintf("renvoyer %s à %s : %s", t.ref(), t.Owner, o.Text)}, nil
+
 	case opMove:
 		t, err := s.getTicket(ctx, tx, o.TicketID)
 		if err != nil {
@@ -456,6 +479,18 @@ func (s *Service) apply(ctx context.Context, tx *sql.Tx, c Caller, o op, p plan,
 			return Outcome{}, err
 		}
 		return s.okTicket(ctx, tx, t.ID, "")
+
+	case opSendBack:
+		res, err := tx.ExecContext(ctx,
+			"UPDATE tickets SET state = 'in_progress', updated_at = ?, owner_activity_at = ? WHERE id = ? AND state = 'to_validate'",
+			now, now, p.ticket.ID)
+		if err := expectOne(res, err, p.ticket.ID); err != nil {
+			return Outcome{}, err
+		}
+		if err := s.event(ctx, tx, p.ticket.ID, c.Name, "sent_back", o.Text, map[string]any{"from": StateToValidate, "to": StateInProgress}, proof); err != nil {
+			return Outcome{}, err
+		}
+		return s.okTicket(ctx, tx, p.ticket.ID, "")
 
 	case opMove:
 		t := p.ticket

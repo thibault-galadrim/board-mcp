@@ -719,3 +719,39 @@ func TestMovingATicketBetweenProjects(t *testing.T) {
 }
 
 func second[T any](_ T, err error) error { return err }
+
+func TestSendBackAndBackup(t *testing.T) {
+	h := newHarness(t, autoMode)
+	ctx := context.Background()
+	agent := h.caller(t, "worker-1")
+	tk := h.add(t, agent, AddInput{Project: "atlas", Title: "x", Doing: true})
+	if _, err := h.svc.SendBack(ctx, terminal, tk.ID, "trop tôt"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("only a ticket awaiting validation is sent back, got %v", err)
+	}
+	h.svc.Note(ctx, agent, tk.ID, "", StateToValidate, nil)
+	if _, err := h.svc.SendBack(ctx, terminal, tk.ID, "  "); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a send-back needs a reason, got %v", err)
+	}
+	h.clock.advance(3 * time.Hour)
+	out, err := h.svc.SendBack(ctx, terminal, tk.ID, "il manque le test")
+	if err != nil || out.Ticket.State != StateInProgress || out.Ticket.Silent {
+		t.Fatalf("a sent-back ticket resumes and its silence restarts: %v %+v", err, out.Ticket)
+	}
+
+	path := filepath.Join(t.TempDir(), "copy.db")
+	if err := h.svc.Backup(ctx, path); err != nil {
+		t.Fatal(err)
+	}
+	copyDB, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer copyDB.Close()
+	var n int
+	if err := copyDB.QueryRow("SELECT COUNT(*) FROM tickets").Scan(&n); err != nil || n != 1 {
+		t.Fatalf("the backup is a readable copy: %v n=%d", err, n)
+	}
+	if err := h.svc.Backup(ctx, path); err == nil {
+		t.Fatal("a backup never overwrites an existing file")
+	}
+}

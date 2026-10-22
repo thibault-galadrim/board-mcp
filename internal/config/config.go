@@ -298,7 +298,7 @@ default_mode = "auto"
 
 # Matrice des modes : une règle par action (free, circle, approval, deny).
 # Actions : add, declare, note, progress, triage, take, reassign, close,
-# drop, move, create_project, rebind_name. Exemple :
+# drop, move, send_back, create_project, rebind_name. Exemple :
 # [modes.auto]
 # close = "approval"
 `

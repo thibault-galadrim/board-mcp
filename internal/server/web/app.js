@@ -18,11 +18,11 @@ const EVENT_LABEL = {
   created: 'a créé le ticket', claimed: 'a pris le ticket', assigned: 'a passé le ticket',
   released: 'a relâché le ticket', note: 'a noté', triaged: 'a validé la trouvaille',
   request_created: 'a demandé', request_approved: 'demande validée', request_refused: 'demande refusée',
-  request_failed: 'demande inapplicable',
+  request_failed: 'demande inapplicable', sent_back: 'a renvoyé le ticket', moved: 'a déplacé le ticket',
 };
 const DAY = 24 * 3600 * 1000;
 
-const state = { csrf: '', owner: '', board: null, drawer: null, seen: new Map(), refreshing: null };
+const state = { csrf: '', owner: '', board: null, drawer: null, seen: new Map(), refreshing: null, tab: 'pour-toi', stale: false };
 
 function h(tag, props, ...kids) {
   const el = document.createElement(tag);
@@ -39,9 +39,14 @@ function h(tag, props, ...kids) {
   return el;
 }
 
-async function api(path, method = 'GET') {
+async function api(path, method = 'GET', payload) {
   const headers = method === 'GET' ? {} : { 'X-Board-CSRF': state.csrf };
-  const res = await fetch(path, { method, headers, credentials: 'same-origin' });
+  const init = { method, headers, credentials: 'same-origin' };
+  if (payload !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(payload);
+  }
+  const res = await fetch(path, init);
   let body = null;
   try { body = await res.json(); } catch { /* empty body */ }
   return { status: res.status, body };
@@ -135,6 +140,38 @@ function decisionButtons(req) {
   return h('div', { class: 'actions' }, feedback, approve, refuse);
 }
 
+function validationButtons(t) {
+  const feedback = h('span', { class: 'feedback' });
+  const close = h('button', { class: 'btn btn-approve', type: 'button' }, fingerprint(), 'Clore');
+  const back = h('button', { class: 'btn', type: 'button' }, 'Renvoyer');
+  const box = h('div', { class: 'actions' }, feedback, close, back);
+  close.addEventListener('click', async () => {
+    close.disabled = back.disabled = true;
+    feedback.textContent = 'Touch ID sur ton Mac…';
+    const res = await api('/api/tickets/' + t.id + '/close', 'POST');
+    close.disabled = back.disabled = false;
+    if (res.status !== 200) feedback.textContent = (res.body && res.body.error) || 'Erreur ' + res.status;
+    else feedback.textContent = { ok: 'Clos', refused: 'Annulé' }[res.body.status] || res.body.message || 'En attente';
+  });
+  back.addEventListener('click', () => {
+    const input = h('input', { class: 'sendback', type: 'text', placeholder: 'Ce qui manque', 'aria-label': 'Ce qui manque' });
+    const send = h('button', { class: 'btn', type: 'button' }, 'Renvoyer');
+    const submit = async () => {
+      if (!input.value.trim()) return input.focus();
+      send.disabled = true;
+      const res = await api('/api/tickets/' + t.id + '/send-back', 'POST', { text: input.value });
+      send.disabled = false;
+      feedback.textContent = res.status === 200 ? 'Renvoyé' : (res.body && res.body.error) || 'Erreur ' + res.status;
+      if (res.status === 200) input.blur();
+    };
+    send.addEventListener('click', submit);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    box.replaceChildren(feedback, input, send);
+    input.focus();
+  });
+  return box;
+}
+
 function forYou(snap) {
   const items = [];
   const byId = new Map(snap.open.map((t) => [t.id, t]));
@@ -147,14 +184,14 @@ function forYou(snap) {
         h('span', { class: 'meta' }, h('span', { class: 'mono' }, '#' + r.id), callsign(r.actor === 'terminal' ? '' : r.actor), 'il y a ' + ago(r.created_at))),
       decisionButtons(r)));
   }
-  const line = (kind, label, t, extra) => items.push(h('div', { class: 'item' },
+  const line = (kind, label, t, extra, actions) => items.push(h('div', { class: 'item' },
     h('span', { class: 'kind ' + kind }, label),
     h('div', { class: 'text' },
       h('button', { class: 'title', type: 'button', onclick: () => openTicket(t.id) }, t.title),
       h('span', { class: 'meta' }, h('span', { class: 'mono' }, '#' + t.id), t.project || 'sans projet', extra)),
-    h('span', {})));
+    actions || h('span', {})));
   for (const t of snap.open) if (t.state === 'blocked') line('k-blocked', 'Bloqué', t, callsign(t.owner));
-  for (const t of snap.open) if (t.state === 'to_validate') line('k-validate', 'À valider', t, [callsign(t.owner), ...(t.links || []).slice(0, 1).map(safeLink)]);
+  for (const t of snap.open) if (t.state === 'to_validate') line('k-validate', 'À valider', t, [callsign(t.owner), ...(t.links || []).slice(0, 1).map(safeLink)], validationButtons(t));
   const horizon = new Date(Date.now() + DAY).toISOString().slice(0, 10);
   for (const t of snap.open) if (t.kind === 'reminder' && t.due && t.due <= horizon) line('k-reminder', 'Rappel', t, dueLabel(t));
   for (const t of snap.open) if (t.silent) line('k-silent', 'Silencieux', t, [callsign(t.owner), 'depuis ' + ago(t.owner_activity_at)]);
@@ -178,9 +215,10 @@ function card(t) {
   return el;
 }
 
-function projectSection(p, tickets) {
+function projectSection(p, tickets, closed) {
   const tasks = tickets.filter((t) => t.kind === 'task');
-  const reminders = tickets.filter((t) => t.kind === 'reminder');
+  const reminders = tickets.filter((t) => t.kind === 'reminder')
+    .sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999'));
   const columns = COLUMNS.map(([st, label]) => {
     const list = tasks.filter((t) => t.state === st);
     return h('div', { class: 'column col-' + st + (list.length ? '' : ' empty') },
@@ -189,10 +227,36 @@ function projectSection(p, tickets) {
   });
   return h('section', { class: 'project' },
     h('div', { class: 'project-head' },
-      h('h2', {}, p.name), h('span', { class: 'slug' }, p.slug), p.mode ? h('span', { class: 'mode' }, 'mode ' + p.mode) : null),
-    tasks.length ? h('div', { class: 'columns' }, columns) : null,
-    reminders.length ? h('div', { class: 'reminders' }, 'Rappels : ',
-      reminders.map((t, i) => [i ? ', ' : '', h('button', { type: 'button', onclick: () => openTicket(t.id) }, t.title), t.due ? ' (' + t.due + ')' : ''])) : null);
+      h('h2', {}, p.name), p.slug ? h('span', { class: 'slug' }, p.slug) : null, p.mode ? h('span', { class: 'mode' }, 'mode ' + p.mode) : null),
+    reminders.length ? h('section', { class: 'reminder-list', 'aria-label': 'Rappels' },
+      h('h3', {}, 'Rappels pour toi', h('span', { class: 'mono' }, reminders.length)),
+      h('ul', {}, reminders.map((t) => h('li', {},
+        t.due ? dueLabel(t) : h('span', { class: 'due' }, 'sans date'),
+        h('button', { type: 'button', onclick: () => openTicket(t.id) }, t.title))))) : null,
+    tasks.length ? h('div', { class: 'columns' }, columns) : h('p', { class: 'empty-project' }, 'Aucune tâche ouverte dans ce projet.'),
+    closed && closed.length ? h('details', { class: 'closed' },
+      h('summary', {}, 'Fermés ces 3 derniers jours (' + closed.length + ')'),
+      h('ul', {}, closed.map((t) => h('li', {},
+        h('span', { class: 'mono' }, '#' + t.id + ' '), h('button', { type: 'button', onclick: () => openTicket(t.id) }, t.title),
+        ' ' + STATE_LABEL[t.state])))) : null);
+}
+
+function tabFromHash() {
+  const id = decodeURIComponent(location.hash.slice(1));
+  return id || 'pour-toi';
+}
+
+function tabBar(snap, mineCount) {
+  const counted = snap.projects.map((p) => ({ id: 'p/' + p.slug, label: p.slug, count: snap.open.filter((t) => t.project === p.slug).length }));
+  counted.sort((a, b) => (b.count > 0) - (a.count > 0) || a.label.localeCompare(b.label));
+  const entries = [{ id: 'pour-toi', label: 'Pour toi', count: mineCount }, ...counted];
+  const loose = snap.open.filter((t) => !t.project).length;
+  if (loose) entries.push({ id: 'sans-projet', label: 'sans projet', count: loose });
+  return h('nav', { class: 'tabs', 'aria-label': 'Projets' }, entries.map((e) => h('a', {
+    href: '#' + e.id,
+    class: 'tab' + (state.tab === e.id ? ' active' : '') + (e.count ? '' : ' muted') + (e.id === 'pour-toi' ? ' mine' : ''),
+    'aria-current': state.tab === e.id ? 'page' : null,
+  }, e.label, e.count ? h('span', { class: 'tab-count' }, e.count) : null)));
 }
 
 function render() {
@@ -205,23 +269,17 @@ function render() {
     return;
   }
   const mine = forYou(snap);
-  const sections = [mine.section];
-  for (const p of snap.projects) {
-    const tickets = snap.open.filter((t) => t.project === p.slug);
-    if (tickets.length) sections.push(projectSection(p, tickets));
+  let content;
+  const project = state.tab.startsWith('p/') && snap.projects.find((p) => 'p/' + p.slug === state.tab);
+  if (project) {
+    content = projectSection(project, snap.open.filter((t) => t.project === project.slug), snap.recently_closed.filter((t) => t.project === project.slug));
+  } else if (state.tab === 'sans-projet') {
+    content = projectSection({ name: 'Sans projet', slug: '' }, snap.open.filter((t) => !t.project), snap.recently_closed.filter((t) => !t.project));
+  } else {
+    state.tab = 'pour-toi';
+    content = mine.section;
   }
-  const loose = snap.open.filter((t) => !t.project);
-  if (loose.length) sections.push(projectSection({ name: 'Sans projet', slug: '' }, loose));
-  const idle = snap.projects.filter((p) => !snap.open.some((t) => t.project === p.slug));
-  if (idle.length) sections.push(h('p', { class: 'reminders' }, 'Sans ticket ouvert : ' + idle.map((p) => p.slug).join(', ')));
-  if (snap.recently_closed.length) {
-    sections.push(h('details', { class: 'closed' },
-      h('summary', {}, 'Fermés ces 3 derniers jours (' + snap.recently_closed.length + ')'),
-      h('ul', {}, snap.recently_closed.map((t) => h('li', {},
-        h('span', { class: 'mono' }, '#' + t.id + ' '), h('button', { type: 'button', onclick: () => openTicket(t.id) }, t.title),
-        ' ' + STATE_LABEL[t.state] + ', ' + (t.project || 'sans projet'))))));
-  }
-  main.replaceChildren(...sections);
+  main.replaceChildren(tabBar(snap, mine.count), content);
 
   document.getElementById('counts').replaceChildren(
     h('strong', {}, mine.count + ' pour toi'), ' · ' + snap.open.filter((t) => t.kind === 'task').length + ' ouverts');
@@ -235,6 +293,11 @@ async function refresh() {
     if (res.status === 401) return signedOut();
     if (res.status === 200) {
       state.board = res.body;
+      // Never wipe what the owner is typing: render once the field is left.
+      if (document.activeElement && document.activeElement.classList.contains('sendback')) {
+        state.stale = true;
+        return;
+      }
       render();
       if (state.drawer) await openTicket(state.drawer, true);
     }
@@ -269,6 +332,7 @@ async function openTicket(id, quiet) {
     h('div', { class: 'facts' },
       h('span', { class: 'mono' }, '#' + t.id), fact(STATE_LABEL[t.state]), fact(t.project || 'sans projet'), fact('P' + t.priority), dueLabel(t),
       t.kind === 'reminder' ? fact('rappel pour toi') : callsign(t.owner)),
+    t.state === 'to_validate' ? [h('h3', {}, 'Validation'), validationButtons(t)] : null,
     t.details ? h('pre', { class: 'details' }, t.details) : null,
     d.pending_requests && d.pending_requests.length
       ? [h('h3', {}, 'Demandes en attente'), d.pending_requests.map((r) => h('div', { class: 'item' },
@@ -320,6 +384,14 @@ function connect() {
 
 async function init() {
   document.getElementById('drawer-close').addEventListener('click', closeDrawer);
+  state.tab = tabFromHash();
+  window.addEventListener('hashchange', () => { state.tab = tabFromHash(); render(); window.scrollTo(0, 0); });
+  document.addEventListener('focusout', (e) => {
+    if (state.stale && e.target.classList && e.target.classList.contains('sendback')) {
+      state.stale = false;
+      setTimeout(() => { render(); if (state.drawer) openTicket(state.drawer, true); }, 200);
+    }
+  });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
   const session = await api('/api/session');
   if (session.status !== 200) return signedOut();

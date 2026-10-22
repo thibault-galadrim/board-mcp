@@ -67,6 +67,13 @@ func (s *Service) MarkNotified(ctx context.Context, ticketID int64, kind, day st
 	return n == 1, err
 }
 
+// Backup writes a consistent copy of the database to path, which must not
+// exist yet.
+func (s *Service) Backup(ctx context.Context, path string) error {
+	_, err := s.db.ExecContext(ctx, "VACUUM INTO ?", path)
+	return err
+}
+
 type Snapshot struct {
 	GeneratedAt string    `json:"generated_at"`
 	Projects    []Project `json:"projects"`

@@ -160,6 +160,45 @@ main { padding: 20px 24px 64px; max-width: 1480px; margin: 0 auto; }
 }
 .callsign.free { background: transparent; color: var(--muted); padding-left: 0; }
 
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 22px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 9px;
+  color: var(--ink);
+  text-decoration: none;
+  font: 13px var(--mono);
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab:hover { border-bottom-color: var(--line); }
+.tab.active { border-bottom-color: var(--accent); font-weight: 650; }
+.tab.mine { font-family: var(--sans); font-weight: 650; color: var(--accent); }
+.tab.muted { color: var(--muted); }
+.tab-count { font: 11px var(--mono); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; color: var(--muted); }
+.tab.active .tab-count, .tab.mine .tab-count { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+
+.reminder-list { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-bottom: 18px; }
+.reminder-list h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--inbox); display: flex; gap: 8px; }
+.reminder-list ul { list-style: none; margin: 0; padding: 0; columns: 2 340px; column-gap: 28px; }
+.reminder-list li { display: grid; grid-template-columns: 112px 1fr; gap: 8px; padding: 3px 0; break-inside: avoid; font-size: 13px; }
+.reminder-list li .due { color: var(--muted); font-size: 12px; }
+.reminder-list li .due.overdue { color: var(--blocked); }
+.reminder-list button { background: none; border: 0; padding: 0; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.reminder-list button:hover { text-decoration: underline; }
+.empty-project { color: var(--muted); }
+
+.sendback { font: inherit; padding: 5px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink); min-width: 220px; }
+
 .project { margin-bottom: 32px; }
 .project-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .project-head h2 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -0.015em; }

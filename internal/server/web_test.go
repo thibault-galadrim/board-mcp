@@ -11,6 +11,7 @@ import (
 
 	"board/internal/board"
 	"board/internal/identity"
+	"board/internal/touchid"
 )
 
 func eventually(t *testing.T, what string, cond func() bool) {
@@ -231,4 +232,41 @@ func contains(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestOwnerClosesOrSendsBackFromThePage(t *testing.T) {
+	approver := &fakeApprover{}
+	e := newEnvWith(t, approver, prompting, autoBoard)
+	worker := e.client(t, "claude:A", nil)
+	done, _ := call[board.Outcome](t, worker, "board_add", map[string]any{"as": "worker-1", "project": "atlas", "title": "export", "doing": true})
+	id := itoa(done.Ticket.ID)
+	call[board.Outcome](t, worker, "board_note", map[string]any{"as": "worker-1", "id": done.Ticket.ID, "state": "to_validate", "text": "prêt"})
+
+	if status, _ := e.post(t, "claude:A", "/api/tickets/"+id+"/close"); status != http.StatusForbidden {
+		t.Fatalf("a session cannot close through the owner's route, got %d", status)
+	}
+	approver.script(touchid.Refused)
+	if _, body := e.post(t, identity.Terminal, "/api/tickets/"+id+"/close"); body["status"] != board.StatusRefused {
+		t.Fatalf("a cancelled Touch ID leaves the ticket alone, got %v", body)
+	}
+
+	req, _ := http.NewRequest(http.MethodPost, e.base+"/api/tickets/"+id+"/send-back", strings.NewReader(`{"text":"il manque le test e2e"}`))
+	res, err := e.httpClient(identity.Terminal, nil).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	d, _ := e.svc.Show(context.Background(), done.Ticket.ID)
+	if res.StatusCode != http.StatusOK || d.Ticket.State != board.StateInProgress || d.Events[len(d.Events)-1].Body != "il manque le test e2e" {
+		t.Fatalf("send back: %d %s %+v", res.StatusCode, d.Ticket.State, d.Events[len(d.Events)-1])
+	}
+
+	call[board.Outcome](t, worker, "board_note", map[string]any{"as": "worker-1", "id": done.Ticket.ID, "state": "to_validate", "text": "test ajouté"})
+	approver.script(touchid.Approved)
+	if _, body := e.post(t, identity.Terminal, "/api/tickets/"+id+"/close"); body["status"] != board.StatusOK {
+		t.Fatalf("got %v", body)
+	}
+	if d, _ := e.svc.Show(context.Background(), done.Ticket.ID); d.Ticket.State != board.StateDone {
+		t.Fatalf("got %s", d.Ticket.State)
+	}
 }

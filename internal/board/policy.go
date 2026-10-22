@@ -13,22 +13,25 @@ const (
 	ActAdd Action = "add"
 	// ActDeclare files work the caller is already doing, in progress and
 	// owned by it: no other session can pick it up.
-	ActDeclare       Action = "declare"
-	ActNote          Action = "note"
-	ActProgress      Action = "progress"
-	ActTriage        Action = "triage"
-	ActTake          Action = "take"
-	ActReassign      Action = "reassign"
-	ActClose         Action = "close"
-	ActDrop          Action = "drop"
-	ActMove          Action = "move"
+	ActDeclare  Action = "declare"
+	ActNote     Action = "note"
+	ActProgress Action = "progress"
+	ActTriage   Action = "triage"
+	ActTake     Action = "take"
+	ActReassign Action = "reassign"
+	ActClose    Action = "close"
+	ActDrop     Action = "drop"
+	ActMove     Action = "move"
+	// ActSendBack returns a ticket awaiting validation to its session, with
+	// the owner's comment. Only the owner's routes use it.
+	ActSendBack      Action = "send_back"
 	ActCreateProject Action = "create_project"
 	ActRebindName    Action = "rebind_name"
 )
 
 var allActions = []Action{
 	ActAdd, ActDeclare, ActNote, ActProgress, ActTriage, ActTake, ActReassign,
-	ActClose, ActDrop, ActMove, ActCreateProject, ActRebindName,
+	ActClose, ActDrop, ActMove, ActSendBack, ActCreateProject, ActRebindName,
 }
 
 // Actions lists every action the mode matrix governs.
@@ -65,7 +68,7 @@ func DefaultSettings() Settings {
 	demande := map[Action]Rule{
 		ActAdd: RuleFree, ActDeclare: RuleApproval, ActNote: RuleFree, ActProgress: RuleCircle,
 		ActTriage: RuleApproval, ActTake: RuleApproval, ActReassign: RuleApproval,
-		ActClose: RuleApproval, ActDrop: RuleApproval, ActMove: RuleApproval,
+		ActClose: RuleApproval, ActDrop: RuleApproval, ActMove: RuleApproval, ActSendBack: RuleFree,
 		ActCreateProject: RuleApproval, ActRebindName: RuleApproval,
 	}
 	auto := cloneRules(demande)

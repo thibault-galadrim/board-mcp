@@ -96,6 +96,7 @@ func runDaemon(args []string) error {
 	go app.Run(ctx)
 	watcher := &configWatcher{path: cfgPath, home: userHome, current: cfg, seen: applied, app: app, board: svc}
 	go watcher.run(ctx)
+	go runBackups(ctx, svc, filepath.Join(home, "backups"), log)
 	log.Info("board daemon listening", "addr", ln.Addr().String(), "home", home, "claude_prefixes", resolver.ClaudePrefixes, "proof", approver.Proof())
 	go func() {
 		unlocked, err := app.Unlock(ctx)

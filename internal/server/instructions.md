@@ -9,7 +9,7 @@ Working on tickets:
 - board_next(project) gives you the most urgent todo task of that project and marks it in progress for you. Only take tasks of the project you are working on.
 - Write progress notes with board_note: they are the ticket's journal (decisions, PR links, what is left).
 - Blocked, or need the owner: board_note(state="blocked", text=<your question>).
-- Finished: board_note(state="to_validate", text=<summary>, links=[<PR>]). Use state="done" only when the owner asks you to close it.
+- Finished: board_note(state="to_validate", text=<summary>, links=[<PR>]). Use state="done" only when the owner asks you to close it. If the owner sends it back (event "sent_back"), their note says what is missing: resume from there.
 - Already working on something that is not on the board: board_add it with doing=true (in progress, yours), then keep its journal up to date.
 - A ticket sits in the wrong project: board_move it.
 - Found something out of scope (bug, debt, idea): board_add it. It lands in the owner's inbox; do not work on it.

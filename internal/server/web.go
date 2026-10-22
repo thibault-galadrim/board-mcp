@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"board/internal/board"
+	"board/internal/identity"
 )
 
 //go:embed web
@@ -140,6 +142,67 @@ func (s *Server) registerWeb(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/board", s.apiBoard)
 	mux.HandleFunc("GET /api/tickets/{id}", s.apiTicket)
 	mux.HandleFunc("GET /api/events", s.apiEvents)
+	mux.HandleFunc("POST /api/tickets/{id}/close", s.ownerOnly(s.apiClose))
+	mux.HandleFunc("POST /api/tickets/{id}/send-back", s.ownerOnly(s.apiSendBack))
+}
+
+var owner = board.Caller{Identity: identity.Terminal, Name: board.TerminalName, Terminal: true}
+
+func ticketID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	if id, err := strconv.ParseInt(r.PathValue("id"), 10, 64); err == nil && id > 0 {
+		return id, true
+	}
+	writeError(w, http.StatusBadRequest, "invalid ticket id")
+	return 0, false
+}
+
+// apiClose closes a ticket the owner has validated. Whatever the mode, the
+// owner is never in a ticket's circle, so this goes through Touch ID.
+func (s *Server) apiClose(w http.ResponseWriter, r *http.Request) {
+	if s.locked.Load() {
+		writeError(w, http.StatusLocked, s.lockedError().Error())
+		return
+	}
+	id, ok := ticketID(w, r)
+	if !ok {
+		return
+	}
+	out, err := s.svc.Note(r.Context(), owner, id, "", board.StateDone, nil)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	out = s.settle(r.Context(), out, true)
+	s.changed()
+	writeJSON(w, http.StatusOK, out)
+}
+
+// apiSendBack returns a ticket awaiting validation to its session with the
+// owner's comment.
+func (s *Server) apiSendBack(w http.ResponseWriter, r *http.Request) {
+	if s.locked.Load() {
+		writeError(w, http.StatusLocked, s.lockedError().Error())
+		return
+	}
+	id, ok := ticketID(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "expected a JSON body with text")
+		return
+	}
+	out, err := s.svc.SendBack(r.Context(), owner, id, body.Text)
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	out = s.settle(r.Context(), out, true)
+	s.changed()
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) apiLoginLink(w http.ResponseWriter, r *http.Request) {
@@ -207,9 +270,8 @@ func (s *Server) apiTicket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusLocked, s.lockedError().Error())
 		return
 	}
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid ticket id")
+	id, ok := ticketID(w, r)
+	if !ok {
 		return
 	}
 	d, err := s.svc.Show(r.Context(), id)
