@@ -647,3 +647,31 @@ func TestFeedAndSnapshot(t *testing.T) {
 		t.Fatalf("closed tickets leave the page after three days, got %+v", snap.Closed)
 	}
 }
+
+func TestDeclaringWorkAlreadyStarted(t *testing.T) {
+	h := newHarness(t, autoMode)
+	ctx := context.Background()
+	agent := h.caller(t, "atlas-planning")
+	out, err := h.svc.Add(ctx, agent, AddInput{Project: "atlas", Title: "refonte du solveur", Doing: true})
+	if err != nil || out.Status != StatusOK {
+		t.Fatalf("%v %+v", err, out)
+	}
+	if tk := out.Ticket; tk.State != StateInProgress || tk.Owner != "atlas-planning" || tk.OwnerActivityAt == "" {
+		t.Fatalf("declared work is in progress and owned by its declarer, got %+v", tk)
+	}
+	if next, _ := h.svc.Next(ctx, h.caller(t, "other"), "atlas", ""); next.Ticket != nil {
+		t.Fatalf("no other session can pick declared work, got %+v", next.Ticket)
+	}
+	if _, err := h.svc.Add(ctx, terminal, AddInput{Project: "atlas", Title: "x", Doing: true}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a terminal does not declare work, got %v", err)
+	}
+	if _, err := h.svc.Add(ctx, agent, AddInput{Kind: KindReminder, Title: "x", Doing: true}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a reminder is never in progress, got %v", err)
+	}
+
+	strict := newHarness(t, nil)
+	pending, err := strict.svc.Add(ctx, strict.caller(t, "atlas-planning"), AddInput{Project: "atlas", Title: "y", Doing: true})
+	if err != nil || pending.Status != StatusPendingApproval || pending.Request.Action != ActDeclare {
+		t.Fatalf("declaring needs the owner in demande, got %v %+v", err, pending)
+	}
+}

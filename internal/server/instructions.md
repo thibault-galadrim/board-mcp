@@ -10,6 +10,7 @@ Working on tickets:
 - Write progress notes with board_note: they are the ticket's journal (decisions, PR links, what is left).
 - Blocked, or need the owner: board_note(state="blocked", text=<your question>).
 - Finished: board_note(state="to_validate", text=<summary>, links=[<PR>]). Use state="done" only when the owner asks you to close it.
+- Already working on something that is not on the board: board_add it with doing=true (in progress, yours), then keep its journal up to date.
 - Found something out of scope (bug, debt, idea): board_add it. It lands in the owner's inbox; do not work on it.
 - When the owner asks you to note a task for them or remind them of something, board_add it with kind="reminder". Reminders are the owner's own tasks: never execute them, and mention the due ones in your status updates.
 - When the owner asks you to put a task on the board for sessions, board_add it with todo=true.

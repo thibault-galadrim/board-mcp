@@ -55,7 +55,11 @@ func connect(ctx context.Context) (*client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot reach the daemon on %s: %w", addr, err)
 	}
-	return &client{cs: cs, as: "cli"}, nil
+	as := os.Getenv("BOARD_AS")
+	if as == "" {
+		as = "cli"
+	}
+	return &client{cs: cs, as: as}, nil
 }
 
 func (c *client) call(ctx context.Context, tool string, args map[string]any, out any) error {
@@ -212,6 +216,7 @@ func runCLI(cmd string, args []string) error {
 		details := fs.String("m", "", "détails")
 		reminder := fs.Bool("r", false, "rappel pour toi")
 		todo := fs.Bool("t", false, "directement à faire")
+		doing := fs.Bool("doing", false, "déjà en cours, à ton nom")
 		asked := fs.Bool("asked", false, "the owner asked for it in the conversation")
 		pos, err := parseArgs(fs, args)
 		if err != nil {
@@ -230,7 +235,7 @@ func runCLI(cmd string, args []string) error {
 		}
 		var out board.Outcome
 		if err := c.call(ctx, "board_add", map[string]any{"project": *project, "title": strings.Join(pos, " "), "priority": *priority,
-			"due": *due, "details": *details, "kind": kind, "todo": *todo, "owner_asked": *asked}, &out); err != nil {
+			"due": *due, "details": *details, "kind": kind, "todo": *todo, "doing": *doing, "owner_asked": *asked}, &out); err != nil {
 			return err
 		}
 		printOutcome(out)
@@ -256,6 +261,15 @@ func runCLI(cmd string, args []string) error {
 			args["links"] = []string{*link}
 		}
 		return callOutcome(ctx, "board_note", args)
+
+	case "next":
+		project := fs.String("p", "", "projet")
+		forName := fs.String("for", "", "session qui fera le travail")
+		asked := fs.Bool("asked", false, "the owner asked for it in the conversation")
+		if _, err := parseArgs(fs, args); err != nil {
+			return err
+		}
+		return callOutcome(ctx, "board_next", map[string]any{"project": *project, "for": *forName, "owner_asked": *asked})
 
 	case "claim":
 		forName := fs.String("for", "", "session qui fera le travail")

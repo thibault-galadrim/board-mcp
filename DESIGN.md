@@ -59,6 +59,7 @@ Un mode par défaut pour tout le board, ajustable projet par projet. **Le défau
 | Action | Demande | Auto (défaut) | Tout permis |
 |---|---|---|---|
 | Ajouter, écrire une note, déposer une trouvaille | libre | libre | libre |
+| Déclarer un travail déjà en cours (à son nom, que personne d'autre ne peut prendre) | validation | libre | libre |
 | Signaler l'avancement (bloqué, à valider, reprise) | cercle | cercle | cercle |
 | Prendre un ticket libre | validation | libre | libre |
 | Passer ou relâcher un ticket déjà pris | validation | cercle | cercle |

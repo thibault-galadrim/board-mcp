@@ -297,8 +297,8 @@ default_mode = "auto"
 # claude_prefixes = ["~/.local/share/claude/versions/"]
 
 # Matrice des modes : une règle par action (free, circle, approval, deny).
-# Actions : add, note, progress, triage, take, reassign, close, drop,
-# create_project, rebind_name. Exemple :
+# Actions : add, declare, note, progress, triage, take, reassign, close,
+# drop, create_project, rebind_name. Exemple :
 # [modes.auto]
 # close = "approval"
 `

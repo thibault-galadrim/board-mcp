@@ -10,7 +10,10 @@ import (
 type Action string
 
 const (
-	ActAdd           Action = "add"
+	ActAdd Action = "add"
+	// ActDeclare files work the caller is already doing, in progress and
+	// owned by it: no other session can pick it up.
+	ActDeclare       Action = "declare"
 	ActNote          Action = "note"
 	ActProgress      Action = "progress"
 	ActTriage        Action = "triage"
@@ -23,7 +26,7 @@ const (
 )
 
 var allActions = []Action{
-	ActAdd, ActNote, ActProgress, ActTriage, ActTake, ActReassign,
+	ActAdd, ActDeclare, ActNote, ActProgress, ActTriage, ActTake, ActReassign,
 	ActClose, ActDrop, ActCreateProject, ActRebindName,
 }
 
@@ -59,13 +62,14 @@ type Settings struct {
 
 func DefaultSettings() Settings {
 	demande := map[Action]Rule{
-		ActAdd: RuleFree, ActNote: RuleFree, ActProgress: RuleCircle,
+		ActAdd: RuleFree, ActDeclare: RuleApproval, ActNote: RuleFree, ActProgress: RuleCircle,
 		ActTriage: RuleApproval, ActTake: RuleApproval, ActReassign: RuleApproval,
 		ActClose: RuleApproval, ActDrop: RuleApproval,
 		ActCreateProject: RuleApproval, ActRebindName: RuleApproval,
 	}
 	auto := cloneRules(demande)
 	auto[ActTake] = RuleFree
+	auto[ActDeclare] = RuleFree
 	auto[ActReassign] = RuleCircle
 	auto[ActClose] = RuleCircle
 	auto[ActDrop] = RuleCircle

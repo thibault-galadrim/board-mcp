@@ -88,6 +88,7 @@ type addIn struct {
 	Due        string   `json:"due,omitempty" jsonschema:"due date YYYY-MM-DD"`
 	ParentID   int64    `json:"parent_id,omitempty" jsonschema:"parent ticket id, to make a sub-ticket"`
 	Todo       bool     `json:"todo,omitempty" jsonschema:"put it straight in todo (the owner may have to approve)"`
+	Doing      bool     `json:"doing,omitempty" jsonschema:"you are already working on it: create it in progress, owned by you"`
 	Links      []string `json:"links,omitempty" jsonschema:"links to attach"`
 }
 
@@ -173,12 +174,12 @@ func (s *Server) registerTools() {
 			})
 		})
 
-	mcp.AddTool(s.mcp, &mcp.Tool{Name: "board_add", Description: "Add a task (lands in the owner's inbox unless todo is allowed), a reminder for the owner, or a sub-ticket."},
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "board_add", Description: "Add a task (lands in the owner's inbox unless todo is allowed), work you are already doing (doing=true), a reminder for the owner, or a sub-ticket."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in addIn) (*mcp.CallToolResult, board.Outcome, error) {
 			return s.outcome(ctx, req, in.As, in.OwnerAsked, func(c board.Caller) (board.Outcome, error) {
 				return s.svc.Add(ctx, c, board.AddInput{
 					Project: in.Project, Kind: board.Kind(in.Kind), Title: in.Title, Details: in.Details,
-					Priority: in.Priority, Due: in.Due, ParentID: in.ParentID, Todo: in.Todo, Links: in.Links,
+					Priority: in.Priority, Due: in.Due, ParentID: in.ParentID, Todo: in.Todo, Doing: in.Doing, Links: in.Links,
 				})
 			})
 		})

@@ -84,15 +84,17 @@ type op struct {
 }
 
 type AddInput struct {
-	Project  string   `json:"project,omitempty"`
-	Kind     Kind     `json:"kind,omitempty"`
-	Title    string   `json:"title"`
-	Details  string   `json:"details,omitempty"`
-	Priority *int     `json:"priority,omitempty"`
-	Due      string   `json:"due,omitempty"`
-	ParentID int64    `json:"parent_id,omitempty"`
-	Todo     bool     `json:"todo,omitempty"`
-	Links    []string `json:"links,omitempty"`
+	Project  string `json:"project,omitempty"`
+	Kind     Kind   `json:"kind,omitempty"`
+	Title    string `json:"title"`
+	Details  string `json:"details,omitempty"`
+	Priority *int   `json:"priority,omitempty"`
+	Due      string `json:"due,omitempty"`
+	ParentID int64  `json:"parent_id,omitempty"`
+	Todo     bool   `json:"todo,omitempty"`
+	// Doing files work the caller has already started: in progress, its own.
+	Doing bool     `json:"doing,omitempty"`
+	Links []string `json:"links,omitempty"`
 }
 
 type plan struct {
@@ -194,6 +196,12 @@ func (s *Service) plan(ctx context.Context, tx *sql.Tx, c Caller, o op) (plan, e
 		}
 		if err := s.validateAdd(ctx, tx, o.Add); err != nil {
 			return plan{}, err
+		}
+		if o.Add.Doing {
+			if c.Terminal {
+				return plan{}, invalidf("only a Claude session declares work it is doing")
+			}
+			return plan{action: ActDeclare, project: o.Add.Project, summary: fmt.Sprintf("déclarer en cours « %s »%s", o.Add.Title, inProject(o.Add.Project))}, nil
 		}
 		return plan{action: ActAdd, project: o.Add.Project, summary: fmt.Sprintf("ajouter « %s »%s", o.Add.Title, inProject(o.Add.Project))}, nil
 
@@ -431,15 +439,18 @@ func (s *Service) apply(ctx context.Context, tx *sql.Tx, c Caller, o op, p plan,
 
 func (s *Service) applyAdd(ctx context.Context, tx *sql.Tx, c Caller, in *AddInput, proof string) (Outcome, error) {
 	now := s.stamp()
-	state := StateInbox
-	if in.Kind == KindReminder {
+	state, owner, activity := StateInbox, "", ""
+	switch {
+	case in.Kind == KindReminder:
 		state = StateTodo
+	case in.Doing:
+		state, owner, activity = StateInProgress, c.Name, now
 	}
 	links, _ := json.Marshal(in.Links)
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO tickets (project, kind, title, details, priority, due, state, parent_id, links, created_by, created_at, updated_at)
-		VALUES (NULLIF(?, ''), ?, ?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, 0), ?, ?, ?, ?)`,
-		in.Project, in.Kind, in.Title, in.Details, *in.Priority, in.Due, state, in.ParentID, string(links), c.Name, now, now)
+		`INSERT INTO tickets (project, kind, title, details, priority, due, state, owner, parent_id, links, created_by, created_at, updated_at, owner_activity_at)
+		VALUES (NULLIF(?, ''), ?, ?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, 0), ?, ?, ?, ?, NULLIF(?, ''))`,
+		in.Project, in.Kind, in.Title, in.Details, *in.Priority, in.Due, state, owner, in.ParentID, string(links), c.Name, now, now, activity)
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -455,7 +466,7 @@ func (s *Service) applyAdd(ctx context.Context, tx *sql.Tx, c Caller, in *AddInp
 	if err := s.event(ctx, tx, id, c.Name, "created", "", map[string]any{"state": state}, proof); err != nil {
 		return Outcome{}, err
 	}
-	if in.Kind == KindReminder {
+	if in.Kind == KindReminder || in.Doing {
 		return s.okTicket(ctx, tx, id, "")
 	}
 
@@ -694,6 +705,9 @@ func (s *Service) validateAdd(ctx context.Context, tx *sql.Tx, in *AddInput) err
 	}
 	if in.Kind != KindTask && in.Kind != KindReminder {
 		return invalidf("kind must be task or reminder")
+	}
+	if in.Doing && (in.Kind == KindReminder || in.Todo) {
+		return invalidf("doing is for a task you are working on; it excludes reminders and todo")
 	}
 	if in.Priority == nil {
 		p := 2

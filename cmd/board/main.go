@@ -20,8 +20,10 @@ const usage = `board - tableau partagé entre toi et tes sessions Claude
   board ls [-p projet] [-s état] [-o session] [-k kind] [-a]
   board show <id>                      fiche et journal d'un ticket
   board news [-p projet]               quoi de neuf depuis ton dernier passage
-  board add [-p projet] [-P 0-3] [-d AAAA-MM-JJ] [-m détails] [-r] [-t] <titre>
-                                       -r rappel pour toi, -t directement à faire
+  board add [-p projet] [-P 0-3] [-d AAAA-MM-JJ] [-m détails] [-r] [-t] [-doing] <titre>
+                                       -r rappel pour toi, -t directement à faire,
+                                       -doing déjà en cours (session seulement)
+  board next -p <projet> [-for session]  prend la tâche libre la plus urgente
   board note <id> [-s état] [-l lien] <texte>
   board claim <id> -for <session>      donne un ticket à faire à une session
   board assign <id> [-to session] -r <motif>   passe ou relâche un ticket
@@ -40,7 +42,8 @@ const usage = `board - tableau partagé entre toi et tes sessions Claude
 Une session Claude qui agit parce que tu le lui as demandé ajoute -asked :
 l'invite Touch ID s'affiche alors tout de suite au lieu d'attendre dans la file.
 
-Environnement : BOARD_HOME (défaut ~/.board), BOARD_ADDR (défaut 127.0.0.1:7391).
+Environnement : BOARD_HOME (défaut ~/.board), BOARD_ADDR (défaut 127.0.0.1:7391),
+BOARD_AS (nom de la session qui utilise la commande, défaut « cli »).
 `
 
 func main() {
