@@ -37,6 +37,9 @@ const usage = `board - tableau partagé entre toi et tes sessions Claude
   board install                        installe le démon et le MCP pour toutes les sessions
   board uninstall                      les retire (tes données restent)
 
+Une session Claude qui agit parce que tu le lui as demandé ajoute -asked :
+l'invite Touch ID s'affiche alors tout de suite au lieu d'attendre dans la file.
+
 Environnement : BOARD_HOME (défaut ~/.board), BOARD_ADDR (défaut 127.0.0.1:7391).
 `
 

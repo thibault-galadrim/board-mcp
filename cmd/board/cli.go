@@ -125,6 +125,7 @@ func runCLI(cmd string, args []string) error {
 		return nil
 
 	case "project-add":
+		asked := fs.Bool("asked", false, "the owner asked for it in the conversation")
 		pos, err := parseArgs(fs, args)
 		if err != nil {
 			return err
@@ -139,7 +140,7 @@ func runCLI(cmd string, args []string) error {
 		var out struct {
 			Created *board.Outcome `json:"created"`
 		}
-		if err := c.call(ctx, "board_projects", map[string]any{"create_slug": pos[0], "create_name": strings.Join(pos[1:], " ")}, &out); err != nil {
+		if err := c.call(ctx, "board_projects", map[string]any{"create_slug": pos[0], "create_name": strings.Join(pos[1:], " "), "owner_asked": *asked}, &out); err != nil {
 			return err
 		}
 		printOutcome(*out.Created)
@@ -211,6 +212,7 @@ func runCLI(cmd string, args []string) error {
 		details := fs.String("m", "", "détails")
 		reminder := fs.Bool("r", false, "rappel pour toi")
 		todo := fs.Bool("t", false, "directement à faire")
+		asked := fs.Bool("asked", false, "the owner asked for it in the conversation")
 		pos, err := parseArgs(fs, args)
 		if err != nil {
 			return err
@@ -228,7 +230,7 @@ func runCLI(cmd string, args []string) error {
 		}
 		var out board.Outcome
 		if err := c.call(ctx, "board_add", map[string]any{"project": *project, "title": strings.Join(pos, " "), "priority": *priority,
-			"due": *due, "details": *details, "kind": kind, "todo": *todo}, &out); err != nil {
+			"due": *due, "details": *details, "kind": kind, "todo": *todo, "owner_asked": *asked}, &out); err != nil {
 			return err
 		}
 		printOutcome(out)
@@ -237,6 +239,7 @@ func runCLI(cmd string, args []string) error {
 	case "note":
 		state := fs.String("s", "", "nouvel état")
 		link := fs.String("l", "", "lien")
+		asked := fs.Bool("asked", false, "the owner asked for it in the conversation")
 		pos, err := parseArgs(fs, args)
 		if err != nil {
 			return err
@@ -248,7 +251,7 @@ func runCLI(cmd string, args []string) error {
 		if err != nil {
 			return fmt.Errorf("ticket id %q: %w", pos[0], err)
 		}
-		args := map[string]any{"id": id, "text": strings.Join(pos[1:], " "), "state": *state}
+		args := map[string]any{"id": id, "text": strings.Join(pos[1:], " "), "state": *state, "owner_asked": *asked}
 		if *link != "" {
 			args["links"] = []string{*link}
 		}
@@ -256,20 +259,22 @@ func runCLI(cmd string, args []string) error {
 
 	case "claim":
 		forName := fs.String("for", "", "session qui fera le travail")
+		asked := fs.Bool("asked", false, "the owner asked for it in the conversation")
 		id, err := ticketID(fs, args)
 		if err != nil {
 			return err
 		}
-		return callOutcome(ctx, "board_claim", map[string]any{"id": id, "for": *forName})
+		return callOutcome(ctx, "board_claim", map[string]any{"id": id, "for": *forName, "owner_asked": *asked})
 
 	case "assign":
 		to := fs.String("to", "", "session qui reprend (vide : relâcher)")
 		reason := fs.String("r", "", "motif")
+		asked := fs.Bool("asked", false, "the owner asked for it in the conversation")
 		id, err := ticketID(fs, args)
 		if err != nil {
 			return err
 		}
-		return callOutcome(ctx, "board_assign", map[string]any{"id": id, "to": *to, "reason": *reason})
+		return callOutcome(ctx, "board_assign", map[string]any{"id": id, "to": *to, "reason": *reason, "owner_asked": *asked})
 	}
 	return fmt.Errorf("unknown command %q (board help)", cmd)
 }
