@@ -98,6 +98,7 @@ func (s *Server) registerTools() {
 				if err != nil {
 					return nil, projectsOut{}, err
 				}
+				created = s.settle(ctx, created)
 				out.Created = &created
 			}
 			out.Projects, err = s.svc.Projects(ctx)
@@ -182,11 +183,17 @@ func (s *Server) outcome(ctx context.Context, req *mcp.CallToolRequest, as strin
 		return nil, board.Outcome{}, err
 	}
 	out, err := fn(c)
+	if err == nil {
+		out = s.settle(ctx, out)
+	}
 	s.log.Info("tool", "tool", req.Params.Name, "actor", c.Name, "identity", c.Identity, "status", out.Status, "err", err)
 	return nil, out, err
 }
 
 func (s *Server) caller(ctx context.Context, req *mcp.CallToolRequest, as string) (board.Caller, error) {
+	if s.locked.Load() {
+		return board.Caller{}, s.lockedError()
+	}
 	key := identity.Terminal
 	if req.Extra != nil {
 		if h := req.Extra.Header.Get(identityHeader); h != "" {
@@ -194,12 +201,18 @@ func (s *Server) caller(ctx context.Context, req *mcp.CallToolRequest, as string
 		}
 	}
 	c, pending, err := s.svc.Bind(ctx, key, key == identity.Terminal, as)
-	if err != nil {
-		return board.Caller{}, err
+	if err != nil || pending == nil {
+		return c, err
 	}
-	if pending != nil {
-		return board.Caller{}, fmt.Errorf("name %q is held by another live session; request #%d asks %s to let you take it. Pick another name, or wait",
-			as, pending.Request.ID, s.svc.Settings().OwnerName)
+	if settled := s.settle(ctx, *pending); settled.Status == board.StatusOK {
+		rebound, again, err := s.svc.Bind(ctx, key, false, as)
+		if err != nil {
+			return board.Caller{}, err
+		}
+		if again == nil {
+			return rebound, nil
+		}
 	}
-	return c, nil
+	return board.Caller{}, fmt.Errorf("name %q is held by another live session and %s has not let you take it (request #%d). Pick another name, or wait",
+		as, s.svc.Settings().OwnerName, pending.Request.ID)
 }

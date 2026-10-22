@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -41,12 +42,17 @@ func (alive) Alive(string) bool { return true }
 type env struct {
 	svc   *board.Service
 	url   string
-	addr  string
+	base  string
 	token string
 	ids   *portIdentities
 }
 
-func newEnv(t *testing.T) *env {
+// quiet never prompts and starts unlocked, for tests about the tools alone.
+var quiet = Options{ApprovalWait: time.Second, UnlockWait: time.Second}
+
+func newEnv(t *testing.T) *env { return newEnvWith(t, &fakeApprover{}, quiet) }
+
+func newEnvWith(t *testing.T, approver Approver, opts Options) *env {
 	t.Helper()
 	ctx := context.Background()
 	db, err := board.OpenDB(ctx, filepath.Join(t.TempDir(), "board.db"))
@@ -68,7 +74,7 @@ func newEnv(t *testing.T) *env {
 	}
 
 	ids := &portIdentities{ports: map[int]string{}}
-	srv := New(svc, ids, "secret-token", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := New(svc, ids, approver, "secret-token", opts, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +82,8 @@ func newEnv(t *testing.T) *env {
 	httpSrv := srv.HTTPServer(ln)
 	go httpSrv.Serve(ln)
 	t.Cleanup(func() { httpSrv.Close() })
-	return &env{svc: svc, url: "http://" + ln.Addr().String() + "/mcp", addr: ln.Addr().String(), token: "secret-token", ids: ids}
+	base := "http://" + ln.Addr().String()
+	return &env{svc: svc, url: base + "/mcp", base: base, token: "secret-token", ids: ids}
 }
 
 type headers struct {
@@ -92,9 +99,9 @@ func (h headers) RoundTrip(r *http.Request) (*http.Response, error) {
 	return h.base.RoundTrip(r)
 }
 
-// client connects as the given identity; extra headers are sent verbatim.
-func (e *env) client(t *testing.T, identityKey string, extra map[string]string) *mcp.ClientSession {
-	t.Helper()
+// httpClient talks to the server as the given identity; extra headers are
+// sent verbatim.
+func (e *env) httpClient(identityKey string, extra map[string]string) *http.Client {
 	dialer := &net.Dialer{}
 	transport := &http.Transport{DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 		c, err := dialer.DialContext(ctx, network, addr)
@@ -109,8 +116,13 @@ func (e *env) client(t *testing.T, identityKey string, extra map[string]string) 
 	for k, v := range extra {
 		all[k] = v
 	}
+	return &http.Client{Transport: headers{base: transport, extra: all}}
+}
+
+func (e *env) client(t *testing.T, identityKey string, extra map[string]string) *mcp.ClientSession {
+	t.Helper()
 	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil).Connect(context.Background(),
-		&mcp.StreamableClientTransport{Endpoint: e.url, HTTPClient: &http.Client{Transport: headers{base: transport, extra: all}}}, nil)
+		&mcp.StreamableClientTransport{Endpoint: e.url, HTTPClient: e.httpClient(identityKey, extra)}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

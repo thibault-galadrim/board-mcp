@@ -96,6 +96,9 @@ func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 }
 
 func runCLI(cmd string, args []string) error {
+	if handled, err := runApprovals(cmd, args); handled {
+		return err
+	}
 	ctx := context.Background()
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	switch cmd {

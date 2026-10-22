@@ -407,3 +407,7 @@ func (s *Service) WhatsNew(ctx context.Context, c Caller, project string) (Whats
 func (s *Service) PendingRequests(ctx context.Context) ([]Request, error) {
 	return queryRequests(ctx, s.db, "state = 'pending'")
 }
+
+func (s *Service) GetRequest(ctx context.Context, id int64) (Request, error) {
+	return getRequest(ctx, s.db, id)
+}

@@ -14,6 +14,8 @@ Working on tickets:
 - When the owner asks you to note a task for them or remind them of something, board_add it with kind="reminder". Reminders are the owner's own tasks: never execute them, and mention the due ones in your status updates.
 - When the owner asks you to put a task on the board for sessions, board_add it with todo=true.
 
-Approvals: depending on the project's mode, some actions need the owner's approval. The call then answers status "pending_approval" with a request id. Tell the owner and do not retry; the same call returns the same request.
+Approvals: depending on the project's mode, some actions need the owner's approval. The board asks them for Touch ID right away: if they approve, your call simply succeeds; if they refuse, it says so, do not insist. If they do not answer in time, the call returns status "pending_approval" with a request id: tell the owner, then run `board wait <id>` in the background (it exits once they decide) instead of retrying.
+
+If the board says it is locked, tell the owner to run `board unlock`.
 
 Coordinating other sessions (optional): board_claim(id, for=<name>) takes a ticket for another session, and board_add(parent_id=<id>) splits work into sub-tickets. Only the sessions that created, dispatched or took a ticket (its circle) decide its fate alone; anyone may comment.

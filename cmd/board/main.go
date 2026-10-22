@@ -26,6 +26,12 @@ const usage = `board - tableau partagé entre toi et tes sessions Claude
   board claim <id> -for <session>      donne un ticket à faire à une session
   board assign <id> [-to session] -r <motif>   passe ou relâche un ticket
 
+  board requests                       demandes en attente de ta validation
+  board ok <id>                        valide une demande (Touch ID)
+  board refuse <id> [-r motif]         refuse une demande
+  board wait <id> [-timeout 12h]       attend la décision (pour les sessions)
+  board unlock                         déverrouille le board (Touch ID)
+
 Environnement : BOARD_HOME (défaut ~/.board), BOARD_ADDR (défaut 127.0.0.1:7391).
 `
 
@@ -40,11 +46,25 @@ func main() {
 	} else {
 		err = runCLI(os.Args[1], os.Args[2:])
 	}
+	var exit exitError
+	if errors.As(err, &exit) {
+		fmt.Println(exit.msg)
+		os.Exit(exit.code)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "board:", err)
 		os.Exit(1)
 	}
 }
+
+// exitError ends the command with a meaningful code, for scripts and for
+// sessions waiting in the background.
+type exitError struct {
+	code int
+	msg  string
+}
+
+func (e exitError) Error() string { return e.msg }
 
 func boardHome() (string, error) {
 	if h := os.Getenv("BOARD_HOME"); h != "" {

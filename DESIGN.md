@@ -151,7 +151,7 @@ Niveaux écartés le 22/10, réutilisables plus tard :
 
 1. ~~Essai technique~~ (fait).
 2. ~~Socle~~ (fait le 22/10) : le démon, SQLite avec verrou exclusif, neuf outils MCP, la prise atomique, le journal, la commande `board`, la matrice des modes, le jeton et les contrôles d'en-têtes, l'identification des sessions par `libproc`. Les demandes de validation sont créées et rejouables (`Approve`/`Refuse`), mais rien ne les déclenche encore : c'est le lot 3.
-3. **Validations** : les demandes, Touch ID (validation et déverrouillage au démarrage), `board wait`.
+3. ~~Validations~~ (fait le 22/10, essai réel avec le doigt à refaire au retour devant le Mac) : chaque demande déclenche une invite Touch ID (repli sur le mot de passe macOS, réglable), une à la fois, et l'appel de la session attend 45 s. « Annuler » sur une invite déclenchée par une session vaut refus ; sur un `board ok`, la demande reste en attente. `board ok`, `board refuse` et `board unlock` ne sont acceptés que depuis un terminal hors session Claude. `board wait` survit aux redémarrages du démon (codes de sortie : 0 approuvée, 2 refusée, 3 inapplicable, 4 en attente). Le démon démarre verrouillé.
 4. **Page et notifications** : la page en direct, les notifications, les échéances, les rappels, la détection des silences.
 5. **Réglages et installation** : `config.toml` avec Touch ID, les règles deny sur `~/.board`, le LaunchAgent et l'enregistrement MCP.
 
@@ -160,6 +160,8 @@ Niveaux écartés le 22/10, réutilisables plus tard :
 1. Les deux MCP Grafana lancent un `docker run` par session : 18 conteneurs, soit environ 340 Mo dans la VM Docker le 22/10. Les passer en un seul conteneur partagé.
 
 ## Ouvert (plus tard)
+
+- Valider quand le propriétaire n'est pas devant le Mac (il suit souvent ses sessions depuis son téléphone) : aujourd'hui, les demandes attendent son retour et le board reste verrouillé.
 
 - Partage avec un collègue (page, dépôt distant).
 - Notification Slack en plus de macOS.

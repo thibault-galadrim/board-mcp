@@ -19,6 +19,7 @@ import (
 	"board/internal/board"
 	"board/internal/identity"
 	"board/internal/server"
+	"board/internal/touchid"
 )
 
 func runDaemon(args []string) error {
@@ -69,10 +70,21 @@ func runDaemon(args []string) error {
 	if err != nil {
 		return err
 	}
-	srv := server.New(svc, resolver, token, log).HTTPServer(ln)
+	approver := touchid.New(os.Getenv("BOARD_BIOMETRICS_ONLY") == "1")
+	app := server.New(svc, resolver, approver, token, server.DefaultOptions(), log)
+	srv := app.HTTPServer(ln)
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
-	log.Info("board daemon listening", "addr", ln.Addr().String(), "home", home, "claude_prefixes", resolver.ClaudePrefixes)
+	log.Info("board daemon listening", "addr", ln.Addr().String(), "home", home, "claude_prefixes", resolver.ClaudePrefixes, "proof", approver.Proof())
+	go func() {
+		unlocked, err := app.Unlock(ctx)
+		switch {
+		case err != nil:
+			log.Error("unlock prompt failed; run `board unlock`", "err", err)
+		case !unlocked:
+			log.Warn("board stays locked until `board unlock`")
+		}
+	}()
 
 	select {
 	case <-ctx.Done():
