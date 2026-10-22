@@ -62,6 +62,10 @@ type Settings struct {
 	ReminderLead    time.Duration
 	ReservedNames   []string
 	WritesPerMinute int
+	// QueueRequests files an action that needs the owner as a pending
+	// request when they did not vouch for it. Off, the session is told to
+	// ask them in the conversation instead.
+	QueueRequests bool
 }
 
 func DefaultSettings() Settings {

@@ -54,7 +54,7 @@ func (f *fakeApprover) lastReason() string {
 	return f.reasons[len(f.reasons)-1]
 }
 
-var prompting = Options{Prompt: PromptAlways, ApprovalWait: 300 * time.Millisecond, UnlockWait: 300 * time.Millisecond}
+var prompting = Options{TouchID: true, Prompt: PromptAlways, ApprovalWait: 300 * time.Millisecond, UnlockWait: 300 * time.Millisecond}
 
 func (e *env) post(t *testing.T, identityKey, path string) (int, map[string]any) {
 	t.Helper()
@@ -233,5 +233,26 @@ func TestOnlyOwnerTriggeredRequestsPrompt(t *testing.T) {
 	mine, _ := call[board.Outcome](t, owner, "board_add", map[string]any{"as": "cli", "project": "atlas", "title": "de mon terminal", "todo": true})
 	if mine.Status != board.StatusOK {
 		t.Fatalf("the owner's terminal prompts at once, got %+v", mine)
+	}
+}
+
+func TestDefaultsNeedNoGestureFromTheOwner(t *testing.T) {
+	approver := &fakeApprover{}
+	e := newEnvWith(t, approver, DefaultOptions(), func(s *board.Settings) { s.QueueRequests = false })
+	agent := e.client(t, "claude:A", nil)
+
+	asked, _ := call[board.Outcome](t, agent, "board_add", map[string]any{"as": "worker-1", "project": "atlas", "title": "dicté", "todo": true, "owner_asked": true})
+	if asked.Status != board.StatusOK || asked.Ticket.State != board.StateTodo || approver.lastReason() != "" {
+		t.Fatalf("the owner's word applies without any prompt, got %+v / %q", asked, approver.lastReason())
+	}
+	_, res := call[board.Outcome](t, agent, "board_claim", map[string]any{"as": "worker-1", "id": asked.Ticket.ID})
+	if !res.IsError || !strings.Contains(errorText(res), "Ask them in the conversation") {
+		t.Fatalf("without it the session is told to ask, got %q", errorText(res))
+	}
+	if sent := e.notes.all(); len(sent) != 0 {
+		t.Fatalf("nothing is queued nor notified, got %q", sent)
+	}
+	if e.srv.locked.Load() {
+		t.Fatal("the board starts unlocked by default")
 	}
 }

@@ -50,6 +50,10 @@ const (
 )
 
 type Options struct {
+	// TouchID makes every owner decision go through a Touch ID prompt,
+	// requests included. Off (the default), the owner's word is enough:
+	// their terminal, the page, or a session passing owner_asked.
+	TouchID      bool
 	Prompt       PromptPolicy
 	ApprovalWait time.Duration
 	// UnlockAtStart keeps the board closed until the owner confirms the
@@ -61,7 +65,7 @@ type Options struct {
 
 func DefaultOptions() Options {
 	return Options{
-		Prompt: PromptOwner, ApprovalWait: 45 * time.Second, UnlockAtStart: true, UnlockWait: 2 * time.Minute,
+		Prompt: PromptOwner, ApprovalWait: 45 * time.Second, UnlockWait: 2 * time.Minute,
 		Notify: NotifyOptions{Blocked: true, ToValidate: true, Done: true, Inbox: true, PendingRequest: true, Deadline: true, DeadlineHour: 9},
 	}
 }
@@ -106,14 +110,6 @@ func (s *Server) options() Options { return *s.opts.Load() }
 func (s *Server) SetOptions(o Options) {
 	s.opts.Store(&o)
 	s.changed()
-}
-
-// ConfirmSettings asks the owner to approve a settings change.
-func (s *Server) ConfirmSettings(ctx context.Context, reason string) (bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, s.options().UnlockWait)
-	defer cancel()
-	d, err := s.approver.Confirm(ctx, clip(reason, 400))
-	return d == touchid.Approved, err
 }
 
 func (s *Server) Notify(title, subtitle, body string) { s.notifier.Notify(title, subtitle, body) }
@@ -185,6 +181,15 @@ func (s *Server) lockedError() error {
 // prompt refuses the request only when cancelRefuses is set: cancelling a
 // prompt one asked for oneself just means "not now".
 func (s *Server) confirmRequest(ctx context.Context, r board.Request, cancelRefuses bool) (out board.Outcome, decided bool) {
+	if !s.options().TouchID {
+		out, err := s.svc.Approve(context.WithoutCancel(ctx), r.ID, "owner")
+		s.hub.notify(r.ID)
+		s.changed()
+		if err != nil {
+			return board.Outcome{Status: board.StatusFailed, Message: err.Error()}, true
+		}
+		return out, true
+	}
 	pctx, cancel := context.WithTimeout(ctx, s.options().ApprovalWait)
 	defer cancel()
 	d, err := s.approver.Confirm(pctx, reasonFor(r))
@@ -218,6 +223,11 @@ func reasonFor(r board.Request) string {
 	return fmt.Sprintf("valider la demande #%d de %s : %s", r.ID, who, r.Summary)
 }
 
+// ownerCaller is the owner acting from their terminal or the page.
+func (s *Server) ownerCaller() board.Caller {
+	return board.Caller{Identity: identity.Terminal, Name: board.TerminalName, Terminal: true, Vouched: !s.options().TouchID}
+}
+
 func (s *Server) shouldPrompt(c board.Caller, ownerAsked bool) bool {
 	switch s.options().Prompt {
 	case PromptAlways:
@@ -234,7 +244,7 @@ func (s *Server) settle(ctx context.Context, out board.Outcome, prompt bool) boa
 	if out.Status != board.StatusPendingApproval || out.Request == nil {
 		return out
 	}
-	if prompt {
+	if prompt && s.options().TouchID {
 		if decided, ok := s.confirmRequest(ctx, *out.Request, true); ok {
 			return decided
 		}

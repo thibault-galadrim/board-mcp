@@ -53,6 +53,8 @@ type file struct {
 		WritesPerMinute *int      `toml:"writes_per_minute"`
 	} `toml:"timing"`
 	Approvals struct {
+		TouchID        *bool     `toml:"touch_id"`
+		Queue          *bool     `toml:"queue"`
 		Prompt         *string   `toml:"prompt"`
 		Wait           *duration `toml:"wait"`
 		UnlockAtStart  *bool     `toml:"unlock_at_start"`
@@ -125,6 +127,12 @@ func Parse(data []byte, home string) (Config, error) {
 	set(&b.WritesPerMinute, f.Timing.WritesPerMinute)
 
 	o := &c.Server
+	set(&o.TouchID, f.Approvals.TouchID)
+	set(&b.QueueRequests, f.Approvals.Queue)
+	if o.TouchID {
+		// Touch ID approves requests, so there must be requests to approve.
+		b.QueueRequests = true
+	}
 	if f.Approvals.Prompt != nil {
 		o.Prompt = server.PromptPolicy(*f.Approvals.Prompt)
 	}
@@ -222,6 +230,8 @@ func Diff(old, next Config) []string {
 	add("avance des rappels", ob.ReminderLead, nb.ReminderLead)
 	add("écritures par minute", ob.WritesPerMinute, nb.WritesPerMinute)
 	oo, no := old.Server, next.Server
+	add("Touch ID", yesNo(oo.TouchID), yesNo(no.TouchID))
+	add("file des demandes", yesNo(ob.QueueRequests), yesNo(nb.QueueRequests))
 	add("invites", oo.Prompt, no.Prompt)
 	add("attente pendant l'appel", oo.ApprovalWait, no.ApprovalWait)
 	add("verrou au démarrage (au redémarrage)", yesNo(oo.UnlockAtStart), yesNo(no.UnlockAtStart))
@@ -259,9 +269,9 @@ func sortedKeys[V any](a, b map[string]V) []string {
 
 // Template is written on first start. Every key is optional.
 const Template = `# Réglages du board.
-# Une modification pendant que le démon tourne t'est présentée avec
-# Touch ID avant d'être appliquée. Une clé absente garde sa valeur par
-# défaut, indiquée en commentaire.
+# Une modification s'applique dès l'enregistrement, et une notification te
+# dit ce qui a changé. Une clé absente garde sa valeur par défaut, indiquée
+# en commentaire.
 
 # owner_name = "Thibault"
 
@@ -278,9 +288,15 @@ default_mode = "auto"
 # writes_per_minute = 60      # plafond d'écritures par session
 
 [approvals]
+# Par défaut, ta parole suffit : ton terminal, la page, ou une session qui
+# agit sur ce que tu viens de lui demander (owner_asked). Sans ta parole, la
+# session est invitée à te poser la question dans la conversation.
+# queue = false               # true : sans ta parole, la demande attend dans une file (page, board ok)
+# touch_id = false            # true : chaque décision passe par Touch ID (active aussi la file)
+# Options suivantes : seulement avec touch_id = true.
 # prompt = "owner"            # owner : invite pour ce que tu déclenches ; always ; never
 # wait = "45s"                # attente de ta réponse pendant l'appel d'une session
-# unlock_at_start = true      # board fermé jusqu'à ton Touch ID au démarrage
+# unlock_at_start = false     # board fermé jusqu'à ton Touch ID au démarrage
 # unlock_wait = "2m"
 # biometrics_only = false     # true : Touch ID seul, sans repli sur le mot de passe
 

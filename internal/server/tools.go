@@ -224,12 +224,14 @@ func (s *Server) caller(ctx context.Context, req *mcp.CallToolRequest, as string
 			key = h
 		}
 	}
-	c, pending, err := s.svc.Bind(ctx, key, key == identity.Terminal, as)
+	terminal := key == identity.Terminal
+	vouched := !s.options().TouchID && (terminal || ownerAsked)
+	c, pending, err := s.svc.Bind(ctx, key, terminal, vouched, as)
 	if err != nil || pending == nil {
 		return c, err
 	}
 	if settled := s.settle(ctx, *pending, s.shouldPrompt(c, ownerAsked)); settled.Status == board.StatusOK {
-		rebound, again, err := s.svc.Bind(ctx, key, false, as)
+		rebound, again, err := s.svc.Bind(ctx, key, false, vouched, as)
 		if err != nil {
 			return board.Caller{}, err
 		}

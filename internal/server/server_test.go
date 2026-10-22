@@ -81,6 +81,7 @@ func newEnvWith(t *testing.T, approver Approver, opts Options, mutate ...func(*b
 	t.Cleanup(func() { db.Close() })
 	settings := board.DefaultSettings()
 	settings.DefaultMode = "demande"
+	settings.QueueRequests = true
 	for _, m := range mutate {
 		m(&settings)
 	}
@@ -88,12 +89,8 @@ func newEnvWith(t *testing.T, approver Approver, opts Options, mutate ...func(*b
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner := board.Caller{Identity: identity.Terminal, Name: board.TerminalName, Terminal: true}
-	out, err := svc.CreateProject(ctx, owner, "atlas", "Atlas")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.Approve(ctx, out.Request.ID, "touchid"); err != nil {
+	owner := board.Caller{Identity: identity.Terminal, Name: board.TerminalName, Terminal: true, Vouched: true}
+	if _, err := svc.CreateProject(ctx, owner, "atlas", "Atlas"); err != nil {
 		t.Fatal(err)
 	}
 

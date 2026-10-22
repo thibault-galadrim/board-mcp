@@ -22,7 +22,7 @@ const EVENT_LABEL = {
 };
 const DAY = 24 * 3600 * 1000;
 
-const state = { csrf: '', owner: '', board: null, drawer: null, seen: new Map(), refreshing: null, tab: 'pour-toi', stale: false };
+const state = { csrf: '', owner: '', touchID: false, board: null, drawer: null, seen: new Map(), refreshing: null, tab: 'pour-toi', stale: false };
 
 function h(tag, props, ...kids) {
   const el = document.createElement(tag);
@@ -116,11 +116,11 @@ function fingerprint() {
 
 function decisionButtons(req) {
   const feedback = h('span', { class: 'feedback' });
-  const approve = h('button', { class: 'btn btn-approve', type: 'button' }, fingerprint(), 'Valider');
+  const approve = h('button', { class: 'btn btn-approve', type: 'button' }, state.touchID ? fingerprint() : null, 'Valider');
   const refuse = h('button', { class: 'btn btn-refuse', type: 'button' }, 'Refuser');
   approve.addEventListener('click', async () => {
     approve.disabled = refuse.disabled = true;
-    feedback.textContent = 'Touch ID sur ton Mac…';
+    feedback.textContent = state.touchID ? 'Touch ID sur ton Mac…' : '';
     const res = await api('/api/requests/' + req.id + '/approve', 'POST');
     approve.disabled = refuse.disabled = false;
     if (res.status === 200) feedback.textContent = res.body.status === 'ok' ? 'Validée' : (res.body.message || 'Échec');
@@ -142,12 +142,12 @@ function decisionButtons(req) {
 
 function validationButtons(t) {
   const feedback = h('span', { class: 'feedback' });
-  const close = h('button', { class: 'btn btn-approve', type: 'button' }, fingerprint(), 'Clore');
+  const close = h('button', { class: 'btn btn-approve', type: 'button' }, state.touchID ? fingerprint() : null, 'Clore');
   const back = h('button', { class: 'btn', type: 'button' }, 'Renvoyer');
   const box = h('div', { class: 'actions' }, feedback, close, back);
   close.addEventListener('click', async () => {
     close.disabled = back.disabled = true;
-    feedback.textContent = 'Touch ID sur ton Mac…';
+    feedback.textContent = state.touchID ? 'Touch ID sur ton Mac…' : '';
     const res = await api('/api/tickets/' + t.id + '/close', 'POST');
     close.disabled = back.disabled = false;
     if (res.status !== 200) feedback.textContent = (res.body && res.body.error) || 'Erreur ' + res.status;
@@ -397,6 +397,7 @@ async function init() {
   if (session.status !== 200) return signedOut();
   state.csrf = session.body.csrf;
   state.owner = session.body.owner;
+  state.touchID = session.body.touch_id === true;
   connect();
   await refresh();
   // Silence and due dates move with the clock, not with events.

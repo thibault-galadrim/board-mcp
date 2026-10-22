@@ -199,13 +199,34 @@ func (s *Service) runWith(ctx context.Context, c Caller, empty *Outcome, build f
 		case allow:
 			out, err = s.apply(ctx, tx, c, o, p, "")
 		case needApproval:
-			out, err = s.request(ctx, tx, c, o, p)
+			out, err = s.needsOwner(ctx, tx, c, o, p)
 		default:
 			err = fmt.Errorf("%w: %s is not allowed in mode %s", ErrDenied, p.action, s.Settings().modeOf(p.project))
 		}
 		return err
 	})
 	return out, err
+}
+
+// needsOwner handles an action reserved to the owner: applied on their
+// word, queued when the settings ask for it, refused otherwise with what
+// to do next.
+func (s *Service) needsOwner(ctx context.Context, tx *sql.Tx, c Caller, o op, p plan) (Outcome, error) {
+	switch {
+	case c.Vouched:
+		return s.apply(ctx, tx, c, o, p, vouchProof(c))
+	case s.Settings().QueueRequests:
+		return s.request(ctx, tx, c, o, p)
+	}
+	return Outcome{}, fmt.Errorf("%w: %s must agree to « %s ». Ask them in the conversation; if they agree, call again with owner_asked=true",
+		ErrNeedsOwner, s.Settings().OwnerName, p.summary)
+}
+
+func vouchProof(c Caller) string {
+	if c.Terminal {
+		return "owner"
+	}
+	return "owner_asked"
 }
 
 func (s *Service) plan(ctx context.Context, tx *sql.Tx, c Caller, o op) (plan, error) {
@@ -587,10 +608,15 @@ func (s *Service) applyAdd(ctx context.Context, tx *sql.Tx, c Caller, in *AddInp
 	case allow:
 		return s.apply(ctx, tx, c, triageOp, p, proof)
 	case needApproval:
-		if !in.Todo {
+		switch {
+		case !in.Todo:
 			return s.okTicket(ctx, tx, id, "")
+		case c.Vouched:
+			return s.apply(ctx, tx, c, triageOp, p, vouchProof(c))
+		case s.Settings().QueueRequests:
+			return s.request(ctx, tx, c, triageOp, p)
 		}
-		return s.request(ctx, tx, c, triageOp, p)
+		return s.okTicket(ctx, tx, id, fmt.Sprintf("it stays in the inbox: putting it in todo needs %s's word (ask them, then board_note state=todo with owner_asked=true)", s.Settings().OwnerName))
 	default:
 		return s.okTicket(ctx, tx, id, "triage is not allowed in this mode: the ticket stays in the inbox")
 	}
@@ -726,15 +752,15 @@ func (s *Service) decideRequest(ctx context.Context, tx *sql.Tx, r Request, stat
 // Bind resolves the session name a caller asks for against its verified
 // identity. A name follows its process: free when the process is gone,
 // approval needed to take it from a live one.
-func (s *Service) Bind(ctx context.Context, identity string, terminal bool, as string) (Caller, *Outcome, error) {
+func (s *Service) Bind(ctx context.Context, identity string, terminal, vouched bool, as string) (Caller, *Outcome, error) {
 	if terminal {
-		return Caller{Identity: identity, Name: TerminalName, Terminal: true}, nil, nil
+		return Caller{Identity: identity, Name: TerminalName, Terminal: true, Vouched: vouched}, nil, nil
 	}
 	name := strings.TrimSpace(as)
 	if err := s.validateName(name); err != nil {
 		return Caller{}, nil, err
 	}
-	c := Caller{Identity: identity, Name: name}
+	c := Caller{Identity: identity, Name: name, Vouched: vouched}
 	var pending *Outcome
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
 		now := s.stamp()
@@ -769,8 +795,10 @@ func (s *Service) Bind(ctx context.Context, identity string, terminal bool, as s
 			_, err = s.apply(ctx, tx, c, o, p, "")
 			return err
 		case needApproval:
-			out, err := s.request(ctx, tx, c, o, p)
-			pending = &out
+			out, err := s.needsOwner(ctx, tx, c, o, p)
+			if out.Status == StatusPendingApproval {
+				pending = &out
+			}
 			return err
 		}
 		return fmt.Errorf("%w: name %s is held by another live session; pick another name", ErrNameInUse, name)

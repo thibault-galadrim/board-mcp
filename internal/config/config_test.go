@@ -115,3 +115,14 @@ func TestLoadWritesTheTemplateOnce(t *testing.T) {
 		t.Fatalf("an existing file is read, never overwritten: %v %q", err, data)
 	}
 }
+
+func TestTouchIDBringsTheQueue(t *testing.T) {
+	c, err := Parse([]byte("[approvals]\ntouch_id = true\n"), home)
+	if err != nil || !c.Server.TouchID || !c.Board.QueueRequests {
+		t.Fatalf("Touch ID approves requests, so it needs the queue: %v %+v", err, c)
+	}
+	d := Defaults(home)
+	if d.Server.TouchID || d.Board.QueueRequests || d.Server.UnlockAtStart {
+		t.Fatal("by default: no Touch ID, no queue, no lock at start")
+	}
+}

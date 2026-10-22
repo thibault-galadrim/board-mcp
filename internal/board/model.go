@@ -127,6 +127,10 @@ type Caller struct {
 	Identity string
 	Name     string
 	Terminal bool
+	// Vouched means the owner gave their word for this call: they are at
+	// their terminal, or a session acts on what they just asked in the
+	// conversation. An action that needs the owner then applies directly.
+	Vouched bool
 }
 
 // TerminalName is the actor recorded for calls that no Claude session owns
@@ -142,6 +146,7 @@ var (
 	ErrRateLimit  = errors.New("rate limited")
 	ErrNameInUse  = errors.New("name in use")
 	ErrNotPending = errors.New("request is not pending")
+	ErrNeedsOwner = errors.New("needs the owner's word")
 )
 
 func invalidf(format string, args ...any) error {

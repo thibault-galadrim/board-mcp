@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,15 +13,8 @@ import (
 )
 
 type fakeApp struct {
-	approve bool
-	asked   []string
 	notes   []string
 	options *server.Options
-}
-
-func (f *fakeApp) ConfirmSettings(_ context.Context, reason string) (bool, error) {
-	f.asked = append(f.asked, reason)
-	return f.approve, nil
 }
 
 func (f *fakeApp) Notify(title, _, body string) { f.notes = append(f.notes, title+" : "+body) }
@@ -36,13 +28,13 @@ func (f *fakeBoard) SetSettings(s board.Settings) error {
 	return s.Validate()
 }
 
-func newWatcher(t *testing.T, approve bool) (*configWatcher, *fakeApp, *fakeBoard) {
+func newWatcher(t *testing.T) (*configWatcher, *fakeApp, *fakeBoard) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(path, []byte(config.Template), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	app, b := &fakeApp{approve: approve}, &fakeBoard{}
+	app, b := &fakeApp{}, &fakeBoard{}
 	return &configWatcher{path: path, home: "/h", current: config.Defaults("/h"), seen: []byte(config.Template), app: app, board: b}, app, b
 }
 
@@ -53,48 +45,33 @@ func (w *configWatcher) write(t *testing.T, content string) {
 	}
 }
 
-func TestApprovedEditIsApplied(t *testing.T) {
-	w, app, b := newWatcher(t, true)
-	w.write(t, "default_mode = \"demande\"\n[approvals]\nprompt = \"always\"\n")
-	w.check(context.Background())
-	if len(app.asked) != 1 || !strings.Contains(app.asked[0], "mode par défaut : auto → demande") {
-		t.Fatalf("the owner must see the difference, got %q", app.asked)
+func TestEditIsAppliedAndAnnounced(t *testing.T) {
+	w, app, b := newWatcher(t)
+	w.write(t, "default_mode = \"demande\"\n[approvals]\nqueue = true\n")
+	w.check()
+	if b.settings == nil || b.settings.DefaultMode != "demande" || !b.settings.QueueRequests || app.options == nil {
+		t.Fatalf("an edit applies at once: %+v %+v", b.settings, app.options)
 	}
-	if b.settings == nil || b.settings.DefaultMode != "demande" || app.options == nil || app.options.Prompt != server.PromptAlways {
-		t.Fatalf("approved settings must be applied: %+v %+v", b.settings, app.options)
+	if len(app.notes) != 1 || !strings.Contains(app.notes[0], "mode par défaut : auto → demande") {
+		t.Fatalf("the owner is told what changed, got %q", app.notes)
 	}
-	w.check(context.Background())
-	if len(app.asked) != 1 {
-		t.Fatal("an unchanged file is not proposed twice")
-	}
-}
-
-func TestRefusedEditIsNotProposedAgainUntilTheFileChanges(t *testing.T) {
-	w, app, b := newWatcher(t, false)
-	w.write(t, "default_mode = \"tout_permis\"\n")
-	w.check(context.Background())
-	w.check(context.Background())
-	if len(app.asked) != 1 || b.settings != nil || !strings.Contains(strings.Join(app.notes, "\n"), "non appliqués") {
-		t.Fatalf("asked %q notes %q settings %+v", app.asked, app.notes, b.settings)
-	}
-	w.write(t, "default_mode = \"tout_permis\"\n# encore\n")
-	w.check(context.Background())
-	if len(app.asked) != 2 {
-		t.Fatal("a new edit is proposed again")
+	w.check()
+	if len(app.notes) != 1 {
+		t.Fatal("an unchanged file is not announced twice")
 	}
 }
 
-func TestInvalidOrCosmeticEditsNeverPrompt(t *testing.T) {
-	w, app, _ := newWatcher(t, true)
+func TestInvalidOrCosmeticEditsChangeNothing(t *testing.T) {
+	w, app, b := newWatcher(t)
 	w.write(t, "defaut_mode = \"auto\"\n")
-	w.check(context.Background())
-	if len(app.asked) != 0 || !strings.Contains(strings.Join(app.notes, "\n"), "invalide") {
-		t.Fatalf("an invalid file is reported, never proposed: %q %q", app.asked, app.notes)
+	w.check()
+	if b.settings != nil || len(app.notes) != 1 || !strings.Contains(app.notes[0], "invalide") {
+		t.Fatalf("an invalid file is reported and ignored: %+v %q", b.settings, app.notes)
 	}
 	w.write(t, config.Template+"\n# juste un commentaire\n")
-	w.check(context.Background())
-	if len(app.asked) != 0 {
-		t.Fatalf("a comment-only edit changes nothing, got %q", app.asked)
+	w.check()
+	if b.settings != nil || len(app.notes) != 1 {
+		t.Fatalf("a comment-only edit changes nothing, got %q", app.notes)
 	}
 }
 

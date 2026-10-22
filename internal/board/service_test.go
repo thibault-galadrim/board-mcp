@@ -51,6 +51,7 @@ func newHarness(t *testing.T, mutate func(*Settings)) *harness {
 	t.Cleanup(func() { db.Close() })
 	settings := DefaultSettings()
 	settings.DefaultMode = "demande"
+	settings.QueueRequests = true
 	settings.WritesPerMinute = 10_000
 	if mutate != nil {
 		mutate(&settings)
@@ -67,14 +68,13 @@ func newHarness(t *testing.T, mutate func(*Settings)) *harness {
 	return h
 }
 
-// project creates a project the way the owner would: request, then approval.
+// project creates a project the way the owner does, from their terminal.
 func (h *harness) project(t *testing.T, slug string) {
 	t.Helper()
-	out, err := h.svc.CreateProject(context.Background(), terminal, slug, strings.ToUpper(slug))
-	if err != nil {
+	owner := Caller{Identity: "terminal", Name: TerminalName, Terminal: true, Vouched: true}
+	if _, err := h.svc.CreateProject(context.Background(), owner, slug, strings.ToUpper(slug)); err != nil {
 		t.Fatal(err)
 	}
-	h.approve(t, out)
 }
 
 func (h *harness) approve(t *testing.T, out Outcome) Outcome {
@@ -93,7 +93,7 @@ func (h *harness) caller(t *testing.T, name string) Caller {
 	t.Helper()
 	identity := "claude:" + name
 	h.alive[identity] = true
-	c, pending, err := h.svc.Bind(context.Background(), identity, false, name)
+	c, pending, err := h.svc.Bind(context.Background(), identity, false, false, name)
 	if err != nil || pending != nil {
 		t.Fatalf("bind %s: %v %+v", name, err, pending)
 	}
@@ -109,10 +109,11 @@ func (h *harness) add(t *testing.T, c Caller, in AddInput) Ticket {
 	return *out.Ticket
 }
 
-// todo creates a task already triaged to todo.
+// todo creates a task already triaged to todo, as the owner does.
 func (h *harness) todo(t *testing.T, project, title string, priority int, due string) Ticket {
 	t.Helper()
-	out, err := h.svc.Add(context.Background(), terminal, AddInput{Project: project, Title: title, Priority: &priority, Due: due, Todo: true})
+	owner := Caller{Identity: "terminal", Name: TerminalName, Terminal: true, Vouched: true}
+	out, err := h.svc.Add(context.Background(), owner, AddInput{Project: project, Title: title, Priority: &priority, Due: due, Todo: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,23 +414,23 @@ func TestNamesFollowTheirProcess(t *testing.T) {
 	h.alive["claude:A"] = true
 	h.alive["claude:B"] = true
 
-	if _, p, err := h.svc.Bind(ctx, "claude:A", false, "coord-atlas"); err != nil || p != nil {
+	if _, p, err := h.svc.Bind(ctx, "claude:A", false, false, "coord-atlas"); err != nil || p != nil {
 		t.Fatalf("%v %+v", err, p)
 	}
-	if _, p, err := h.svc.Bind(ctx, "claude:A", false, "worker-x"); err != nil || p != nil {
+	if _, p, err := h.svc.Bind(ctx, "claude:A", false, false, "worker-x"); err != nil || p != nil {
 		t.Fatalf("one process may hold several names (subagents): %v %+v", err, p)
 	}
-	_, pending, err := h.svc.Bind(ctx, "claude:B", false, "coord-atlas")
+	_, pending, err := h.svc.Bind(ctx, "claude:B", false, false, "coord-atlas")
 	if err != nil || pending == nil || pending.Request.Action != ActRebindName {
 		t.Fatalf("taking a live session's name must ask, got %v %+v", err, pending)
 	}
 
 	h.alive["claude:A"] = false
-	if _, p, err := h.svc.Bind(ctx, "claude:C", false, "coord-atlas"); err != nil || p != nil {
+	if _, p, err := h.svc.Bind(ctx, "claude:C", false, false, "coord-atlas"); err != nil || p != nil {
 		t.Fatalf("a dead session's name is free, got %v %+v", err, p)
 	}
 	for _, bad := range []string{"terminal", "Thibault", "x", "UPPER", "has space"} {
-		if _, _, err := h.svc.Bind(ctx, "claude:D", false, bad); !errors.Is(err, ErrInvalid) {
+		if _, _, err := h.svc.Bind(ctx, "claude:D", false, false, bad); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%q should be refused, got %v", bad, err)
 		}
 	}
@@ -753,5 +754,38 @@ func TestSendBackAndBackup(t *testing.T) {
 	}
 	if err := h.svc.Backup(ctx, path); err == nil {
 		t.Fatal("a backup never overwrites an existing file")
+	}
+}
+
+func TestTheOwnersWordIsEnough(t *testing.T) {
+	h := newHarness(t, func(s *Settings) { s.QueueRequests = false })
+	ctx := context.Background()
+	tk := h.todo(t, "atlas", "x", 1, "")
+	agent := h.caller(t, "worker-1")
+
+	_, err := h.svc.Claim(ctx, agent, tk.ID, "")
+	if !errors.Is(err, ErrNeedsOwner) || !strings.Contains(err.Error(), "owner_asked=true") {
+		t.Fatalf("without the owner's word nothing queues: the session is told to ask, got %v", err)
+	}
+	if pending, _ := h.svc.PendingRequests(ctx); len(pending) != 0 {
+		t.Fatalf("no request piles up, got %+v", pending)
+	}
+	agent.Vouched = true
+	out, err := h.svc.Claim(ctx, agent, tk.ID, "")
+	if err != nil || out.Ticket.Owner != "worker-1" {
+		t.Fatalf("on the owner's word it applies at once: %v %+v", err, out)
+	}
+	d, _ := h.svc.Show(ctx, tk.ID)
+	if last := d.Events[len(d.Events)-1]; last.Kind != "claimed" || last.Proof != "owner_asked" {
+		t.Fatalf("the journal says whose word it was, got %+v", last)
+	}
+
+	found := h.add(t, h.caller(t, "worker-2"), AddInput{Project: "atlas", Title: "trouvaille", Todo: true})
+	if found.State != StateInbox {
+		t.Fatalf("an unvouched todo stays in the inbox, got %s", found.State)
+	}
+	owner := Caller{Identity: "terminal", Name: TerminalName, Terminal: true, Vouched: true}
+	if out, err := h.svc.Note(ctx, owner, found.ID, "", StateTodo, nil); err != nil || out.Ticket.State != StateTodo {
+		t.Fatalf("the owner triages from their terminal directly: %v %+v", err, out)
 	}
 }

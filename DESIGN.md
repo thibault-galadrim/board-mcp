@@ -8,7 +8,7 @@
 
 1. **Agnostique des rôles.** Le board ne connaît que des sessions nommées et des tickets. Il ne sait pas ce qu'est une coordinatrice ou un ouvrier, mais ses briques permettent ce mode sans l'imposer.
 2. **Tout est réglable.** Chaque décision de ce document est un réglage dont la valeur par défaut est celle retenue ici. Les modes ne sont que des préréglages d'une matrice.
-3. **Sécurité d'abord.** Un agent manipulé (par un mail, une page web ou un message lu) ne doit pas pouvoir retourner le board contre son propriétaire. Une validation humaine ne peut pas être forgée.
+3. **Aucune faille pour le Mac.** Le démon n'ouvre aucune porte sur la machine : écoute locale, jeton, protections web, aucun texte de ticket interprété, rien vers internet. Le board fait confiance aux sessions du propriétaire, qui ont déjà un terminal complet : il ne leur oppose pas de Touch ID (précisé le 22/10, après une première version où chaque validation passait par Touch ID).
 4. **Empreinte minimale.** Un seul process pour toutes les sessions, aucun CPU au repos.
 
 ## Usage au quotidien
@@ -77,12 +77,9 @@ La matrice est un réglage. On peut ajouter un mode ou modifier une case.
 
 ### Validations
 
-- **Dans la conversation** : la session pose la question et Thibault répond.
-- **En différé** : la demande attend dans la page (boutons Valider et Refuser), ou dans le terminal avec `board ok <id>` / `board refuse <id>`.
-- **Preuve** : chaque validation déclenche un **Touch ID** affiché par le démon, d'où qu'elle parte. C'est réglable : par exemple, Touch ID seulement pour le sensible.
-- **Seule autorité : le Touch ID posé en direct.** La base ne contient aucun droit. Une validation n'existe qu'au moment où le démon reçoit le Touch ID et exécute l'action dans la foulée. Il n'y a donc rien à falsifier dans la base.
-- **Quelles demandes déclenchent l'invite tout de suite** (réglable : `owner`, `always`, `never`) : par défaut, seulement ce que le propriétaire a déclenché lui-même, c'est-à-dire sa commande `board`, un bouton de la page, ou une action qu'une session marque `owner_asked` parce qu'il vient de la lui dicter. Une session manipulée qui mettrait `owner_asked` à tort n'obtient qu'une invite, rare donc lue. Tout le reste attend dans la file, avec une notification.
-- **Attente sans boucle** : la session lance `board wait <id>` en tâche de fond. Ça ne coûte rien, et Claude Code la réveille quand la commande se termine.
+- **La parole du propriétaire suffit.** Une action qui demande son accord s'applique quand il la déclenche lui-même (son terminal, la page) ou quand une session agit sur ce qu'il vient de lui demander dans la conversation (`owner_asked`, `-asked` en commande). Le journal note d'où vient l'accord (`owner` ou `owner_asked`).
+- **Sans sa parole, rien ne s'empile** : le board répond à la session qu'il faut son accord, et la session lui pose la question dans la conversation. Pas de clic, pas d'invite.
+- **Options** (`config.toml`, désactivées par défaut) : `queue` met les demandes sans parole en file (page, `board ok`, `board wait`) ; `touch_id` fait passer chaque décision par Touch ID (et active la file), avec les invites et le verrou au démarrage du premier essai.
 - Une prise validée reste atomique : si quelqu'un d'autre a pris le ticket entre-temps, elle est refusée.
 
 ### Notifications (macOS)
@@ -97,12 +94,12 @@ Les rappels apparaissent aussi dans le « quoi de neuf » de toute session qui f
   - Mesure du 22/10 : 21 sessions ouvertes. Un serveur par session coûterait environ 700 Mo en Bun ou 170 Mo en Go. Le démon unique mesuré pèse 20 Mo (SQLite en Go pur et SDK MCP compris).
 - **Transport** : MCP en HTTP sur `127.0.0.1`, enregistré une fois avec `claude mcp add --scope user` et un en-tête de jeton. Après un redémarrage du démon, Claude Code se ré-initialise tout seul (vérifié).
 - **Stockage** : SQLite en mode WAL et `locking_mode=EXCLUSIVE` dans `~/.board/board.db`. Seul le démon peut lire ou écrire tant qu'il tourne, et la prise d'un ticket est une seule écriture conditionnelle dans une transaction.
-- **Déverrouillage** : chaque démarrage du démon demande un Touch ID en affichant les réglages actifs. Sans ce Touch ID, le board reste fermé.
+- **Démarrage** : le board est ouvert dès que le démon démarre (le verrou par Touch ID n'existe plus qu'en option, avec `touch_id`).
 - **Mode d'emploi des agents** : il est livré par les instructions du serveur MCP. Rien à ajouter dans les CLAUDE.md.
 - **Page** : servie par le démon, mise à jour poussée en direct (SSE), sans rafraîchissement périodique.
 - **Échéances et silences** : surveillés par un minuteur interne du démon, sans tâche planifiée à côté.
 - **Un seul binaire** : `board` est à la fois le démon et la commande pour l'humain (`add`, `ls`, `ok`, `refuse`, `wait`, `open`, `config`).
-- **Réglages** : dans `~/.board/config.toml`. Le démon détecte une modification, affiche l'écart et attend le Touch ID avant de l'appliquer. Sans validation, la modification est ignorée et signalée.
+- **Réglages** : dans `~/.board/config.toml`. Une modification s'applique dès l'enregistrement, et une notification dit ce qui a changé. Un fichier invalide est ignoré et signalé.
 
 ### Outils MCP (première version)
 
@@ -129,9 +126,9 @@ Quand l'action d'un agent attend une validation, l'outil répond avec l'identifi
 |---|---|
 | Un site web ou un autre process qui appelle le démon | Écoute sur `127.0.0.1` uniquement, jeton obligatoire, contrôle des en-têtes `Host` et `Origin` (contre le DNS rebinding et le CSRF), aucun CORS. La page passe par un cookie `HttpOnly` / `SameSite=Strict` posé par `board open` avec un lien à usage unique, et chaque bouton porte un jeton CSRF |
 | Une session qui se fait passer pour une autre | Le démon identifie l'appelant par le système : à partir de la connexion, il remonte jusqu'au process `claude` ancêtre (`libproc`, avec un cache par connexion). Un agent qui contourne MCP avec `curl` est rattaché à sa propre session, et les en-têtes d'identité fournis par le client sont ignorés. Un nom est lié à ce process : libre si le process est mort, et sa reprise demande une validation s'il est vivant |
-| Une validation forgée | Le Touch ID en direct est la seule autorité, et la base ne contient aucun droit (voir Validations) |
+| Une validation inventée par une session | Accepté : une session a déjà un terminal complet, le board lui fait confiance. Le journal garde d'où vient chaque accord (`owner_asked` et le nom de la session), et `touch_id` existe pour qui veut le verrou |
 | Un contenu piégé dans un ticket | Échappement systématique (`html/template`), markdown assaini, CSP stricte, aucune ressource externe. Les notifications passent leurs textes en arguments, jamais assemblés en script |
-| Un accès direct à la base | `~/.board` en `0700` et la base en `0600`. Les règles deny `Read(~/.board/**)` de Claude Code couvrent les outils fichiers et les commandes courantes. Le verrou exclusif bloque `sqlite3` et les scripts tant que le démon tourne. Si un agent tue le démon pour y toucher, le redémarrage demande un Touch ID que tu n'attendais pas : tu refuses et le board reste fermé. Risque restant, accepté : l'état des tickets peut être modifié pendant ce court arrêt, jamais une validation ni un réglage sans que tu le voies |
+| Un accès direct à la base | `~/.board` en `0700` et la base en `0600`. Les règles deny `Read(~/.board/**)` de Claude Code couvrent les outils fichiers et les commandes courantes. Le verrou exclusif bloque `sqlite3` et les scripts tant que le démon tourne. Une sauvegarde quotidienne limite la perte en cas de base abîmée |
 | Un agent qui s'emballe | Plafonds de taille par champ et de débit par session |
 | Les dépendances | SDK MCP Go officiel, SQLite, versions figées (`go.sum`), `govulncheck` |
 | Une fuite | Le démon n'appelle jamais internet. Les requêtes SQL sont toujours paramétrées |
@@ -174,4 +171,7 @@ Niveaux écartés le 22/10, réutilisables plus tard :
 | 5 | Nom : « board » est gardé | inchangé |
 | 6 | Silences : visibles dans la page et le « quoi de neuf », sans notification | inchangé |
 | 7 | Ticket n°4 (conception) : passé à valider, les suites deviennent des tickets séparés | fait |
-| 8 | Page : un onglet par projet plus « Pour toi », l'onglet dans l'adresse ; Clore (Touch ID) et Renvoyer (avec commentaire, action `send_back` libre par défaut) sur les tickets à valider | fait |
+| 8 | Page : un onglet par projet plus « Pour toi », l'onglet dans l'adresse ; Clore et Renvoyer (avec commentaire, action `send_back` libre par défaut) sur les tickets à valider | fait |
+| 9 | Sécurité = aucune faille pour le Mac, pas de Touch ID opposé aux sessions : la parole du propriétaire (terminal, page, `owner_asked`) suffit | fait |
+| 10 | Sans sa parole : pas de file ni de clic, la session lui pose la question (`queue` en option) | fait |
+| 11 | Plus de verrou au démarrage ; réglages appliqués à l'enregistrement, avec notification (`touch_id` en option) | fait |

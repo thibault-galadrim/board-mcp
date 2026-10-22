@@ -15,7 +15,6 @@ import (
 const configCheckEvery = 3 * time.Second
 
 type settingsApp interface {
-	ConfirmSettings(ctx context.Context, reason string) (bool, error)
 	Notify(title, subtitle, body string)
 	SetOptions(server.Options)
 }
@@ -24,9 +23,9 @@ type settingsBoard interface {
 	SetSettings(board.Settings) error
 }
 
-// configWatcher applies config.toml edits made while the daemon runs, once
-// the owner approves the difference with Touch ID. A refused or invalid
-// content is not proposed again until the file changes.
+// configWatcher applies config.toml edits made while the daemon runs and
+// tells the owner what changed. An invalid content is reported once and
+// ignored until the file changes again.
 type configWatcher struct {
 	path, home string
 	current    config.Config
@@ -43,12 +42,12 @@ func (w *configWatcher) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-			w.check(ctx)
+			w.check()
 		}
 	}
 }
 
-func (w *configWatcher) check(ctx context.Context) {
+func (w *configWatcher) check() {
 	data, err := os.ReadFile(w.path)
 	if err != nil || bytes.Equal(data, w.seen) {
 		return
@@ -61,11 +60,6 @@ func (w *configWatcher) check(ctx context.Context) {
 	}
 	lines := config.Diff(w.current, next)
 	if len(lines) == 0 {
-		return
-	}
-	approved, err := w.app.ConfirmSettings(ctx, "appliquer les réglages : "+strings.Join(lines, " ; "))
-	if err != nil || !approved {
-		w.app.Notify("Board : réglages non appliqués", "config.toml", "le fichier diffère des réglages en cours ; modifie-le à nouveau pour les reproposer")
 		return
 	}
 	if err := w.board.SetSettings(next.Board); err != nil {
