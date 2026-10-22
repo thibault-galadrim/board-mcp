@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,7 +19,7 @@ type Liveness interface {
 
 type Service struct {
 	db       *sql.DB
-	settings Settings
+	settings atomic.Pointer[Settings]
 	alive    Liveness
 	now      func() time.Time
 	limiter  *limiter
@@ -31,16 +32,28 @@ func NewService(db *sql.DB, settings Settings, alive Liveness, now func() time.T
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{
-		db:       db,
-		settings: settings,
-		alive:    alive,
-		now:      now,
-		limiter:  &limiter{perMinute: settings.WritesPerMinute, hits: map[string][]time.Time{}},
-	}, nil
+	svc := &Service{
+		db:      db,
+		alive:   alive,
+		now:     now,
+		limiter: &limiter{perMinute: settings.WritesPerMinute, hits: map[string][]time.Time{}},
+	}
+	svc.settings.Store(&settings)
+	return svc, nil
 }
 
-func (s *Service) Settings() Settings { return s.settings }
+func (s *Service) Settings() Settings { return *s.settings.Load() }
+
+// SetSettings swaps the settings while the board runs. The caller is
+// responsible for the owner's consent.
+func (s *Service) SetSettings(next Settings) error {
+	if err := next.Validate(); err != nil {
+		return err
+	}
+	s.settings.Store(&next)
+	s.limiter.setRate(next.WritesPerMinute)
+	return nil
+}
 
 type opKind string
 
@@ -138,7 +151,7 @@ func (s *Service) run(ctx context.Context, c Caller, o op) (Outcome, error) {
 // when build finds nothing to do, empty is returned.
 func (s *Service) runWith(ctx context.Context, c Caller, empty *Outcome, build func(*sql.Tx) (op, bool, error)) (Outcome, error) {
 	if !s.limiter.allow(c.Identity, s.now()) {
-		return Outcome{}, fmt.Errorf("%w: more than %d writes per minute", ErrRateLimit, s.settings.WritesPerMinute)
+		return Outcome{}, fmt.Errorf("%w: more than %d writes per minute", ErrRateLimit, s.Settings().WritesPerMinute)
 	}
 	var out Outcome
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
@@ -160,13 +173,13 @@ func (s *Service) runWith(ctx context.Context, c Caller, empty *Outcome, build f
 				return err
 			}
 		}
-		switch decide(s.settings.rule(p.project, p.action), member) {
+		switch decide(s.Settings().rule(p.project, p.action), member) {
 		case allow:
 			out, err = s.apply(ctx, tx, c, o, p, "")
 		case needApproval:
 			out, err = s.request(ctx, tx, c, o, p)
 		default:
-			err = fmt.Errorf("%w: %s is not allowed in mode %s", ErrDenied, p.action, s.settings.modeOf(p.project))
+			err = fmt.Errorf("%w: %s is not allowed in mode %s", ErrDenied, p.action, s.Settings().modeOf(p.project))
 		}
 		return err
 	})
@@ -225,7 +238,7 @@ func (s *Service) plan(ctx context.Context, tx *sql.Tx, c Caller, o op) (plan, e
 			return plan{}, err
 		}
 		if t.Kind == KindReminder {
-			return plan{}, invalidf("%s is a reminder for %s: surface it, never take it", t.ref(), s.settings.OwnerName)
+			return plan{}, invalidf("%s is a reminder for %s: surface it, never take it", t.ref(), s.Settings().OwnerName)
 		}
 		if t.State != StateTodo || t.Owner != "" {
 			who := ""
@@ -449,7 +462,7 @@ func (s *Service) applyAdd(ctx context.Context, tx *sql.Tx, c Caller, in *AddInp
 	// A task lands in the inbox unless its author may triage it: then it
 	// goes straight to todo. Asking for todo without that right files a
 	// triage request for the owner.
-	triage := s.settings.rule(in.Project, ActTriage)
+	triage := s.Settings().rule(in.Project, ActTriage)
 	wantTodo := in.Todo || triage == RuleFree
 	if !wantTodo {
 		return s.okTicket(ctx, tx, id, "")
@@ -509,7 +522,7 @@ func (s *Service) request(ctx context.Context, tx *sql.Tx, c Caller, o op, p pla
 	}
 	out := Outcome{
 		Status:  StatusPendingApproval,
-		Message: fmt.Sprintf("waiting for %s's approval (request #%d). Tell them; do not retry.", s.settings.OwnerName, r.ID),
+		Message: fmt.Sprintf("waiting for %s's approval (request #%d). Tell them; do not retry.", s.Settings().OwnerName, r.ID),
 		Request: &r,
 	}
 	if ticketID != 0 {
@@ -597,7 +610,7 @@ func (s *Service) decideRequest(ctx context.Context, tx *sql.Tx, r Request, stat
 		state, outcome, s.stamp(), r.ID); err != nil {
 		return err
 	}
-	return s.event(ctx, tx, r.TicketID, s.settings.OwnerName, "request_"+string(state), outcome, map[string]any{"request_id": r.ID, "action": r.Action}, proof)
+	return s.event(ctx, tx, r.TicketID, s.Settings().OwnerName, "request_"+string(state), outcome, map[string]any{"request_id": r.ID, "action": r.Action}, proof)
 }
 
 // Bind resolves the session name a caller asks for against its verified
@@ -641,7 +654,7 @@ func (s *Service) Bind(ctx context.Context, identity string, terminal bool, as s
 		if err != nil {
 			return err
 		}
-		switch decide(s.settings.rule("", ActRebindName), false) {
+		switch decide(s.Settings().rule("", ActRebindName), false) {
 		case allow:
 			_, err = s.apply(ctx, tx, c, o, p, "")
 			return err
@@ -662,7 +675,7 @@ func (s *Service) validateName(name string) error {
 	if !namePattern.MatchString(name) {
 		return invalidf("session name %q must be 2-48 characters of a-z, 0-9, '.', '_' or '-', starting with a letter or digit", name)
 	}
-	if s.settings.reserved(name) {
+	if s.Settings().reserved(name) {
 		return invalidf("session name %q is reserved", name)
 	}
 	return nil
@@ -751,7 +764,7 @@ func (s *Service) requireProject(ctx context.Context, q querier, slug string) er
 		existing = strings.Join(slugs, ", ")
 	}
 	return fmt.Errorf("%w: unknown project %q; existing projects: %s. Only %s creates projects",
-		ErrNotFound, slug, existing, s.settings.OwnerName)
+		ErrNotFound, slug, existing, s.Settings().OwnerName)
 }
 
 func validateText(text string) error {
@@ -859,6 +872,12 @@ type limiter struct {
 	mu        sync.Mutex
 	perMinute int
 	hits      map[string][]time.Time
+}
+
+func (l *limiter) setRate(perMinute int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.perMinute = perMinute
 }
 
 func (l *limiter) allow(key string, now time.Time) bool {

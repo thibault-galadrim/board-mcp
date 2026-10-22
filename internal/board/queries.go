@@ -34,7 +34,7 @@ func (s *Service) scanTicket(row scanner) (Ticket, error) {
 	t.Overdue = t.Due != "" && !t.State.closed() && t.Due < s.today()
 	if t.State == StateInProgress && t.OwnerActivityAt != "" {
 		if at, err := time.Parse(time.RFC3339, t.OwnerActivityAt); err == nil {
-			t.Silent = s.now().Sub(at) > s.settings.SilenceAfter
+			t.Silent = s.now().Sub(at) > s.Settings().SilenceAfter
 		}
 	}
 	return t, nil
@@ -163,7 +163,7 @@ func (s *Service) Projects(ctx context.Context) ([]Project, error) {
 			rows.Close()
 			return nil, err
 		}
-		p.Mode = s.settings.modeOf(p.Slug)
+		p.Mode = s.Settings().modeOf(p.Slug)
 		p.Count = map[State]int{}
 		index[p.Slug] = len(projects)
 		projects = append(projects, p)
@@ -390,7 +390,7 @@ func (s *Service) WhatsNew(ctx context.Context, c Caller, project string) (Whats
 				w.Silent = append(w.Silent, t)
 			}
 		}
-		horizon := s.now().Add(s.settings.ReminderLead).Format(time.DateOnly)
+		horizon := s.now().Add(s.Settings().ReminderLead).Format(time.DateOnly)
 		reminderArgs := append(append([]any{}, scopeArgs...), horizon)
 		if w.Reminders, err = s.queryTickets(ctx, tx,
 			inScope+" AND kind = 'reminder' AND state = 'todo' AND due IS NOT NULL AND due <= ? ORDER BY due, priority", reminderArgs...); err != nil {

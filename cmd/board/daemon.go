@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"board/internal/board"
+	"board/internal/config"
 	"board/internal/identity"
 	"board/internal/notify"
 	"board/internal/server"
@@ -62,8 +63,24 @@ func runDaemon(args []string) error {
 	}
 	defer db.Close()
 
-	resolver := identity.LibprocResolver{ClaudePrefixes: claudePrefixes()}
-	svc, err := board.NewService(db, board.DefaultSettings(), resolver, nil)
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	notifier := notify.MacOS{Log: log}
+	cfgPath := filepath.Join(home, "config.toml")
+	cfg, applied, err := config.Load(cfgPath, userHome)
+	if err != nil {
+		// Fall back on the defaults rather than refuse to start: launchd
+		// would restart a failing daemon in a loop. The next valid edit is
+		// proposed to the owner like any other.
+		log.Error("config.toml is invalid, running on defaults", "err", err)
+		notifier.Notify("Board : config.toml invalide", "réglages par défaut appliqués", err.Error())
+		cfg = config.Defaults(userHome)
+	}
+
+	resolver := identity.LibprocResolver{ClaudePrefixes: cfg.ClaudePrefixes}
+	svc, err := board.NewService(db, cfg.Board, resolver, nil)
 	if err != nil {
 		return err
 	}
@@ -71,12 +88,14 @@ func runDaemon(args []string) error {
 	if err != nil {
 		return err
 	}
-	approver := touchid.New(os.Getenv("BOARD_BIOMETRICS_ONLY") == "1")
-	app := server.New(svc, resolver, approver, notify.MacOS{Log: log}, token, server.DefaultOptions(), log)
+	approver := touchid.New(cfg.BiometricsOnly)
+	app := server.New(svc, resolver, approver, notifier, token, cfg.Server, log)
 	srv := app.HTTPServer(ln)
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 	go app.Run(ctx)
+	watcher := &configWatcher{path: cfgPath, home: userHome, current: cfg, seen: applied, app: app, board: svc}
+	go watcher.run(ctx)
 	log.Info("board daemon listening", "addr", ln.Addr().String(), "home", home, "claude_prefixes", resolver.ClaudePrefixes, "proof", approver.Proof())
 	go func() {
 		unlocked, err := app.Unlock(ctx)
@@ -98,18 +117,6 @@ func runDaemon(args []string) error {
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdown)
-}
-
-// claudePrefixes lists where trusted Claude Code executables live.
-func claudePrefixes() []string {
-	if v := os.Getenv("BOARD_CLAUDE_PREFIXES"); v != "" {
-		return strings.Split(v, ":")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil
-	}
-	return []string{filepath.Join(home, ".local/share/claude/versions") + "/"}
 }
 
 func ensureToken(home string) (string, error) {

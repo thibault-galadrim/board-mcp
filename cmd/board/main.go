@@ -33,6 +33,10 @@ const usage = `board - tableau partagé entre toi et tes sessions Claude
   board unlock                         déverrouille le board (Touch ID)
   board open                           ouvre la page du board dans le navigateur
 
+  board config                         affiche ~/.board/config.toml
+  board install                        installe le démon et le MCP pour toutes les sessions
+  board uninstall                      les retire (tes données restent)
+
 Environnement : BOARD_HOME (défaut ~/.board), BOARD_ADDR (défaut 127.0.0.1:7391).
 `
 
@@ -42,9 +46,16 @@ func main() {
 		return
 	}
 	var err error
-	if os.Args[1] == "daemon" {
+	switch os.Args[1] {
+	case "daemon":
 		err = runDaemon(os.Args[2:])
-	} else {
+	case "install":
+		err = runInstall()
+	case "uninstall":
+		err = runUninstall()
+	case "config":
+		err = showConfig()
+	default:
 		err = runCLI(os.Args[1], os.Args[2:])
 	}
 	var exit exitError
@@ -95,6 +106,20 @@ func boardAddr() (string, error) {
 }
 
 func tokenPath(home string) string { return filepath.Join(home, "token") }
+
+func showConfig() error {
+	home, err := boardHome()
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(home, "config.toml")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("%s: %w (the daemon writes it on first start)", path, err)
+	}
+	fmt.Printf("# %s\n%s", path, b)
+	return nil
+}
 
 func readToken(home string) (string, error) {
 	b, err := os.ReadFile(tokenPath(home))

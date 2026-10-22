@@ -27,6 +27,9 @@ var allActions = []Action{
 	ActClose, ActDrop, ActCreateProject, ActRebindName,
 }
 
+// Actions lists every action the mode matrix governs.
+func Actions() []Action { return append([]Action{}, allActions...) }
+
 type Rule string
 
 const (

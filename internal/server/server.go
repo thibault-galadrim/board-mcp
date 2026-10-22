@@ -72,7 +72,7 @@ type Server struct {
 	approver Approver
 	notifier Notifier
 	token    string
-	opts     Options
+	opts     atomic.Pointer[Options]
 	log      *slog.Logger
 	mcp      *mcp.Server
 	locked   atomic.Bool
@@ -85,18 +85,38 @@ type Server struct {
 
 func New(svc *board.Service, resolver identity.Resolver, approver Approver, notifier Notifier, token string, opts Options, log *slog.Logger) *Server {
 	s := &Server{
-		svc: svc, resolver: resolver, approver: approver, notifier: notifier, token: token, opts: opts, log: log,
+		svc: svc, resolver: resolver, approver: approver, notifier: notifier, token: token, log: log,
 		hub:   hub{waiters: map[int64][]chan struct{}{}},
 		pages: broadcaster{subs: map[chan struct{}]struct{}{}},
 		web:   webAuth{links: map[string]time.Time{}, sessions: map[string]webSession{}},
 		wake:  make(chan struct{}, 1),
 		clock: time.Now,
 	}
+	s.opts.Store(&opts)
 	s.locked.Store(opts.UnlockAtStart)
 	s.mcp = mcp.NewServer(&mcp.Implementation{Name: "board", Version: "0.2.0"}, &mcp.ServerOptions{Instructions: instructions})
 	s.registerTools()
 	return s
 }
+
+func (s *Server) options() Options { return *s.opts.Load() }
+
+// SetOptions swaps the options while the board runs. The caller is
+// responsible for the owner's consent.
+func (s *Server) SetOptions(o Options) {
+	s.opts.Store(&o)
+	s.changed()
+}
+
+// ConfirmSettings asks the owner to approve a settings change.
+func (s *Server) ConfirmSettings(ctx context.Context, reason string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.options().UnlockWait)
+	defer cancel()
+	d, err := s.approver.Confirm(ctx, clip(reason, 400))
+	return d == touchid.Approved, err
+}
+
+func (s *Server) Notify(title, subtitle, body string) { s.notifier.Notify(title, subtitle, body) }
 
 // HTTPServer serves the board on ln, which must be a loopback listener.
 func (s *Server) HTTPServer(ln net.Listener) *http.Server {
@@ -127,7 +147,7 @@ func (s *Server) Unlock(ctx context.Context) (bool, error) {
 	if !s.locked.Load() {
 		return true, nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.opts.UnlockWait)
+	ctx, cancel := context.WithTimeout(ctx, s.options().UnlockWait)
 	defer cancel()
 	d, err := s.approver.Confirm(ctx, s.unlockReason())
 	if err != nil {
@@ -165,7 +185,7 @@ func (s *Server) lockedError() error {
 // prompt refuses the request only when cancelRefuses is set: cancelling a
 // prompt one asked for oneself just means "not now".
 func (s *Server) confirmRequest(ctx context.Context, r board.Request, cancelRefuses bool) (out board.Outcome, decided bool) {
-	pctx, cancel := context.WithTimeout(ctx, s.opts.ApprovalWait)
+	pctx, cancel := context.WithTimeout(ctx, s.options().ApprovalWait)
 	defer cancel()
 	d, err := s.approver.Confirm(pctx, reasonFor(r))
 	if err != nil {
@@ -199,7 +219,7 @@ func reasonFor(r board.Request) string {
 }
 
 func (s *Server) shouldPrompt(c board.Caller, ownerAsked bool) bool {
-	switch s.opts.Prompt {
+	switch s.options().Prompt {
 	case PromptAlways:
 		return true
 	case PromptOwner:

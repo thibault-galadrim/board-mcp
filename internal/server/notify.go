@@ -102,7 +102,7 @@ func (s *Server) noteFor(item board.FeedItem) (note, bool) {
 			State board.State `json:"state"`
 		}
 		_ = json.Unmarshal([]byte(item.Data), &data)
-		if s.opts.Notify.Inbox && data.State == board.StateInbox && item.Actor != board.TerminalName {
+		if s.options().Notify.Inbox && data.State == board.StateInbox && item.Actor != board.TerminalName {
 			return note{"Trouvaille" + inProject(item.Project), ref, "déposée par " + item.Actor}, true
 		}
 	case "state":
@@ -115,11 +115,11 @@ func (s *Server) noteFor(item board.FeedItem) (note, bool) {
 			body += " : " + clip(item.Body, 180)
 		}
 		switch {
-		case data.To == board.StateBlocked && s.opts.Notify.Blocked:
+		case data.To == board.StateBlocked && s.options().Notify.Blocked:
 			return note{"Bloqué" + inProject(item.Project), ref, body}, true
-		case data.To == board.StateToValidate && s.opts.Notify.ToValidate:
+		case data.To == board.StateToValidate && s.options().Notify.ToValidate:
 			return note{"À valider" + inProject(item.Project), ref, body}, true
-		case data.To == board.StateDone && s.opts.Notify.Done:
+		case data.To == board.StateDone && s.options().Notify.Done:
 			return note{"Fait" + inProject(item.Project), ref, body}, true
 		}
 	}
@@ -127,14 +127,14 @@ func (s *Server) noteFor(item board.FeedItem) (note, bool) {
 }
 
 func (s *Server) notifyPending(r board.Request) {
-	if s.opts.Notify.PendingRequest {
+	if s.options().Notify.PendingRequest {
 		s.notifier.Notify("Demande en attente", fmt.Sprintf("#%d de %s", r.ID, r.Actor), clip(r.Summary, 180)+" - board ok "+fmt.Sprint(r.ID))
 	}
 }
 
 func (s *Server) checkDeadlines(ctx context.Context) {
 	now := s.clock()
-	if !s.opts.Notify.Deadline || now.Hour() < s.opts.Notify.DeadlineHour {
+	if !s.options().Notify.Deadline || now.Hour() < s.options().Notify.DeadlineHour {
 		return
 	}
 	today := now.Format(time.DateOnly)
