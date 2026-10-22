@@ -68,6 +68,14 @@ type assignIn struct {
 	Reason     string `json:"reason" jsonschema:"why, kept in the journal"`
 }
 
+type moveIn struct {
+	OwnerAsked bool   `json:"owner_asked,omitempty" jsonschema:"true only when the owner asked you for this exact action in this conversation: they then get the Touch ID prompt right away"`
+	As         string `json:"as" jsonschema:"your stable session name, e.g. coord-atlas"`
+	ID         int64  `json:"id" jsonschema:"ticket id"`
+	Project    string `json:"project" jsonschema:"destination project slug; empty takes a reminder out of any project"`
+	Reason     string `json:"reason,omitempty" jsonschema:"why, kept in the journal"`
+}
+
 type noteIn struct {
 	OwnerAsked bool     `json:"owner_asked,omitempty" jsonschema:"true only when the owner asked you for this exact action in this conversation: they then get the Touch ID prompt right away"`
 	As         string   `json:"as" jsonschema:"your stable session name, e.g. coord-atlas"`
@@ -164,6 +172,13 @@ func (s *Server) registerTools() {
 		func(ctx context.Context, req *mcp.CallToolRequest, in assignIn) (*mcp.CallToolResult, board.Outcome, error) {
 			return s.outcome(ctx, req, in.As, in.OwnerAsked, func(c board.Caller) (board.Outcome, error) {
 				return s.svc.Assign(ctx, c, in.ID, in.To, in.Reason)
+			})
+		})
+
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "board_move", Description: "Move an open ticket filed in the wrong project, with its sub-tickets, to another project."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in moveIn) (*mcp.CallToolResult, board.Outcome, error) {
+			return s.outcome(ctx, req, in.As, in.OwnerAsked, func(c board.Caller) (board.Outcome, error) {
+				return s.svc.Move(ctx, c, in.ID, in.Project, in.Reason)
 			})
 		})
 

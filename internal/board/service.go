@@ -63,6 +63,7 @@ const (
 	opClaim         opKind = "claim"
 	opAssign        opKind = "assign"
 	opCreateProject opKind = "create_project"
+	opMove          opKind = "move"
 	opRebind        opKind = "rebind"
 )
 
@@ -100,6 +101,9 @@ type AddInput struct {
 type plan struct {
 	action  Action
 	project string
+	// also is a second project whose mode governs the action too (the
+	// destination of a move): the stricter decision wins.
+	also    string
 	ticket  *Ticket
 	summary string
 }
@@ -118,6 +122,11 @@ func (s *Service) Claim(ctx context.Context, c Caller, id int64, forName string)
 
 func (s *Service) Assign(ctx context.Context, c Caller, id int64, to, reason string) (Outcome, error) {
 	return s.run(ctx, c, op{Kind: opAssign, TicketID: id, To: to, Reason: reason})
+}
+
+// Move puts an open ticket, with its sub-tickets, in another project.
+func (s *Service) Move(ctx context.Context, c Caller, id int64, project, reason string) (Outcome, error) {
+	return s.run(ctx, c, op{Kind: opMove, TicketID: id, Slug: project, Reason: reason})
 }
 
 func (s *Service) CreateProject(ctx context.Context, c Caller, slug, name string) (Outcome, error) {
@@ -175,7 +184,11 @@ func (s *Service) runWith(ctx context.Context, c Caller, empty *Outcome, build f
 				return err
 			}
 		}
-		switch decide(s.Settings().rule(p.project, p.action), member) {
+		d := decide(s.Settings().rule(p.project, p.action), member)
+		if p.also != "" {
+			d = max(d, decide(s.Settings().rule(p.also, p.action), member))
+		}
+		switch d {
 		case allow:
 			out, err = s.apply(ctx, tx, c, o, p, "")
 		case needApproval:
@@ -298,6 +311,37 @@ func (s *Service) plan(ctx context.Context, tx *sql.Tx, c Caller, o op) (plan, e
 		return plan{action: ActReassign, project: t.Project, ticket: &t,
 			summary: fmt.Sprintf("passer %s de %s à %s : %s", t.ref(), t.Owner, o.To, o.Reason)}, nil
 
+	case opMove:
+		t, err := s.getTicket(ctx, tx, o.TicketID)
+		if err != nil {
+			return plan{}, err
+		}
+		if t.State.closed() {
+			return plan{}, invalidf("ticket #%d is %s: only an open ticket moves", t.ID, t.State)
+		}
+		if t.ParentID != 0 {
+			return plan{}, invalidf("ticket #%d is a sub-ticket of #%d: move the parent, its sub-tickets follow", t.ID, t.ParentID)
+		}
+		if o.Slug == t.Project {
+			return plan{}, invalidf("ticket #%d is already in %s", t.ID, orNone(t.Project))
+		}
+		if o.Slug == "" && t.Kind == KindTask {
+			return plan{}, invalidf("a task needs a project")
+		}
+		if o.Slug != "" {
+			if err := s.requireProject(ctx, tx, o.Slug); err != nil {
+				return plan{}, err
+			}
+		}
+		if err := validateText(o.Reason); err != nil {
+			return plan{}, err
+		}
+		summary := fmt.Sprintf("déplacer %s de %s vers %s", t.ref(), orNone(t.Project), orNone(o.Slug))
+		if o.Reason != "" {
+			summary += " : " + o.Reason
+		}
+		return plan{action: ActMove, project: t.Project, also: o.Slug, ticket: &t, summary: summary}, nil
+
 	case opCreateProject:
 		if !slugPattern.MatchString(o.Slug) {
 			return plan{}, invalidf("project slug must match %s", slugPattern)
@@ -409,6 +453,26 @@ func (s *Service) apply(ctx context.Context, tx *sql.Tx, c Caller, o op, p plan,
 			}
 		}
 		if err := s.event(ctx, tx, t.ID, c.Name, kind, o.Reason, map[string]any{"from": t.Owner, "to": o.To}, proof); err != nil {
+			return Outcome{}, err
+		}
+		return s.okTicket(ctx, tx, t.ID, "")
+
+	case opMove:
+		t := p.ticket
+		res, err := tx.ExecContext(ctx, "UPDATE tickets SET project = NULLIF(?, ''), updated_at = ? WHERE id = ? AND COALESCE(project, '') = ?",
+			o.Slug, now, t.ID, t.Project)
+		if err := expectOne(res, err, t.ID); err != nil {
+			return Outcome{}, err
+		}
+		res, err = tx.ExecContext(ctx, `WITH RECURSIVE sub(id) AS (
+				SELECT id FROM tickets WHERE parent_id = ?
+				UNION SELECT tk.id FROM tickets tk JOIN sub ON tk.parent_id = sub.id)
+			UPDATE tickets SET project = NULLIF(?, ''), updated_at = ? WHERE id IN (SELECT id FROM sub)`, t.ID, o.Slug, now)
+		if err != nil {
+			return Outcome{}, err
+		}
+		moved, _ := res.RowsAffected()
+		if err := s.event(ctx, tx, t.ID, c.Name, "moved", o.Reason, map[string]any{"from": t.Project, "to": o.Slug, "sub_tickets": moved}, proof); err != nil {
 			return Outcome{}, err
 		}
 		return s.okTicket(ctx, tx, t.ID, "")
@@ -874,6 +938,13 @@ var stateLabel = map[State]string{
 }
 
 func (t Ticket) ref() string { return fmt.Sprintf("#%d « %s »", t.ID, t.Title) }
+
+func orNone(slug string) string {
+	if slug == "" {
+		return "aucun projet"
+	}
+	return slug
+}
 
 func inProject(slug string) string {
 	if slug == "" {

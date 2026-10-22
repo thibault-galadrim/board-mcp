@@ -65,6 +65,7 @@ Un mode par défaut pour tout le board, ajustable projet par projet. **Le défau
 | Passer ou relâcher un ticket déjà pris | validation | cercle | cercle |
 | Clore (→ fait) | validation | cercle | cercle |
 | Abandonner | validation | cercle | cercle |
+| Déplacer vers un autre projet (avec ses sous-tickets ; le mode le plus strict des deux projets s'applique) | validation | cercle | cercle |
 | Valider une trouvaille | Thibault | Thibault | libre |
 | Créer un projet | Thibault | Thibault | Thibault |
 | Reprendre le nom d'une session encore active | Thibault | Thibault | Thibault |
@@ -117,6 +118,7 @@ Chaque appel porte le nom de la session (`as`).
 | `board_claim` | prendre un ticket précis, pour soi ou `pour` quelqu'un |
 | `board_assign` | passer à quelqu'un ou relâcher, avec un motif |
 | `board_note` | écrire une note et/ou changer l'état (bloqué + question, à valider + résumé + PR) |
+| `board_move` | déplacer un ticket rangé dans le mauvais projet, avec ses sous-tickets |
 | `board_add` | ajouter un ticket ou une trouvaille, avec un parent facultatif |
 
 Quand l'action d'un agent attend une validation, l'outil répond avec l'identifiant de la demande.

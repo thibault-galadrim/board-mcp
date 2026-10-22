@@ -675,3 +675,47 @@ func TestDeclaringWorkAlreadyStarted(t *testing.T) {
 		t.Fatalf("declaring needs the owner in demande, got %v %+v", err, pending)
 	}
 }
+
+func TestMovingATicketBetweenProjects(t *testing.T) {
+	h := newHarness(t, func(s *Settings) { s.DefaultMode = "auto"; s.ProjectModes["perso"] = "demande" })
+	h.project(t, "outillage")
+	ctx := context.Background()
+	author := h.caller(t, "board-design")
+	misfiled := h.add(t, author, AddInput{Project: "outillage", Title: "Grafana", Doing: true})
+	sub := h.add(t, author, AddInput{Project: "outillage", Title: "sous-tâche", ParentID: misfiled.ID})
+
+	out, err := h.svc.Move(ctx, author, misfiled.ID, "atlas", "mal rangé")
+	if err != nil || out.Status != StatusOK || out.Ticket.Project != "atlas" || out.Ticket.State != StateInProgress {
+		t.Fatalf("the circle moves its ticket in auto: %v %+v", err, out)
+	}
+	if got := h.ticket(t, sub.ID); got.Project != "atlas" {
+		t.Fatalf("sub-tickets follow their parent, got %s", got.Project)
+	}
+	d, _ := h.svc.Show(ctx, misfiled.ID)
+	if last := d.Events[len(d.Events)-1]; last.Kind != "moved" || last.Body != "mal rangé" {
+		t.Fatalf("got %+v", last)
+	}
+
+	if out, _ := h.svc.Move(ctx, h.caller(t, "outsider"), misfiled.ID, "outillage", ""); out.Status != StatusPendingApproval {
+		t.Fatalf("an outsider asks the owner, got %+v", out)
+	}
+	if out, _ := h.svc.Move(ctx, author, misfiled.ID, "perso", ""); out.Status != StatusPendingApproval {
+		t.Fatalf("moving into a demande project follows the stricter mode, got %+v", out)
+	}
+	for name, err := range map[string]error{
+		"sub-ticket": second(h.svc.Move(ctx, author, sub.ID, "outillage", "")),
+		"same":       second(h.svc.Move(ctx, author, misfiled.ID, "atlas", "")),
+		"no project": second(h.svc.Move(ctx, author, misfiled.ID, "", "")),
+		"unknown":    second(h.svc.Move(ctx, author, misfiled.ID, "nope", "")),
+	} {
+		if !errors.Is(err, ErrInvalid) && !errors.Is(err, ErrNotFound) {
+			t.Errorf("%s: want a refusal, got %v", name, err)
+		}
+	}
+	reminder := h.add(t, author, AddInput{Kind: KindReminder, Project: "atlas", Title: "rappel"})
+	if out, err := h.svc.Move(ctx, author, reminder.ID, "", ""); err != nil || out.Ticket.Project != "" {
+		t.Fatalf("a reminder can leave every project: %v %+v", err, out)
+	}
+}
+
+func second[T any](_ T, err error) error { return err }

@@ -27,6 +27,7 @@ const usage = `board - tableau partagé entre toi et tes sessions Claude
   board note <id> [-s état] [-l lien] <texte>
   board claim <id> -for <session>      donne un ticket à faire à une session
   board assign <id> [-to session] -r <motif>   passe ou relâche un ticket
+  board move <id> -p <projet> [-r motif]       déplace un ticket (et ses sous-tickets)
 
   board requests                       demandes en attente de ta validation
   board ok <id>                        valide une demande (Touch ID)

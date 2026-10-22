@@ -21,13 +21,14 @@ const (
 	ActReassign      Action = "reassign"
 	ActClose         Action = "close"
 	ActDrop          Action = "drop"
+	ActMove          Action = "move"
 	ActCreateProject Action = "create_project"
 	ActRebindName    Action = "rebind_name"
 )
 
 var allActions = []Action{
 	ActAdd, ActDeclare, ActNote, ActProgress, ActTriage, ActTake, ActReassign,
-	ActClose, ActDrop, ActCreateProject, ActRebindName,
+	ActClose, ActDrop, ActMove, ActCreateProject, ActRebindName,
 }
 
 // Actions lists every action the mode matrix governs.
@@ -64,7 +65,7 @@ func DefaultSettings() Settings {
 	demande := map[Action]Rule{
 		ActAdd: RuleFree, ActDeclare: RuleApproval, ActNote: RuleFree, ActProgress: RuleCircle,
 		ActTriage: RuleApproval, ActTake: RuleApproval, ActReassign: RuleApproval,
-		ActClose: RuleApproval, ActDrop: RuleApproval,
+		ActClose: RuleApproval, ActDrop: RuleApproval, ActMove: RuleApproval,
 		ActCreateProject: RuleApproval, ActRebindName: RuleApproval,
 	}
 	auto := cloneRules(demande)
@@ -73,6 +74,7 @@ func DefaultSettings() Settings {
 	auto[ActReassign] = RuleCircle
 	auto[ActClose] = RuleCircle
 	auto[ActDrop] = RuleCircle
+	auto[ActMove] = RuleCircle
 	toutPermis := cloneRules(auto)
 	toutPermis[ActTriage] = RuleFree
 

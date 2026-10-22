@@ -262,6 +262,16 @@ func runCLI(cmd string, args []string) error {
 		}
 		return callOutcome(ctx, "board_note", args)
 
+	case "move":
+		project := fs.String("p", "", "projet de destination (vide : sortir un rappel de tout projet)")
+		reason := fs.String("r", "", "motif")
+		asked := fs.Bool("asked", false, "the owner asked for it in the conversation")
+		id, err := ticketID(fs, args)
+		if err != nil {
+			return err
+		}
+		return callOutcome(ctx, "board_move", map[string]any{"id": id, "project": *project, "reason": *reason, "owner_asked": *asked})
+
 	case "next":
 		project := fs.String("p", "", "projet")
 		forName := fs.String("for", "", "session qui fera le travail")
