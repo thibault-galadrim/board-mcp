@@ -25,15 +25,15 @@ func (s *Service) scanTicket(row scanner) (Ticket, error) {
 	var t Ticket
 	var links string
 	if err := row.Scan(&t.ID, &t.Project, &t.Kind, &t.Title, &t.Details, &t.Priority, &t.Due, &t.State,
-		&t.Owner, &t.ParentID, &links, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.ownerActivityAt); err != nil {
+		&t.Owner, &t.ParentID, &links, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.OwnerActivityAt); err != nil {
 		return Ticket{}, err
 	}
 	if err := json.Unmarshal([]byte(links), &t.Links); err != nil {
 		return Ticket{}, fmt.Errorf("ticket #%d links: %w", t.ID, err)
 	}
 	t.Overdue = t.Due != "" && !t.State.closed() && t.Due < s.today()
-	if t.State == StateInProgress && t.ownerActivityAt != "" {
-		if at, err := time.Parse(time.RFC3339, t.ownerActivityAt); err == nil {
+	if t.State == StateInProgress && t.OwnerActivityAt != "" {
+		if at, err := time.Parse(time.RFC3339, t.OwnerActivityAt); err == nil {
 			t.Silent = s.now().Sub(at) > s.settings.SilenceAfter
 		}
 	}

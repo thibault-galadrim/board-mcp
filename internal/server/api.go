@@ -108,6 +108,7 @@ func (s *Server) apiRefuse(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := s.svc.Refuse(r.Context(), req.ID, r.URL.Query().Get("reason"), "")
 	s.hub.notify(req.ID)
+	s.changed()
 	if err != nil {
 		writeServiceError(w, err)
 		return

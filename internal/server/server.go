@@ -4,7 +4,6 @@ package server
 
 import (
 	"context"
-	"crypto/subtle"
 	_ "embed"
 	"fmt"
 	"log/slog"
@@ -46,26 +45,42 @@ type Options struct {
 	// active settings at startup.
 	UnlockAtStart bool
 	UnlockWait    time.Duration
+	Notify        NotifyOptions
 }
 
 func DefaultOptions() Options {
-	return Options{PromptOnRequest: true, ApprovalWait: 45 * time.Second, UnlockAtStart: true, UnlockWait: 2 * time.Minute}
+	return Options{
+		PromptOnRequest: true, ApprovalWait: 45 * time.Second, UnlockAtStart: true, UnlockWait: 2 * time.Minute,
+		Notify: NotifyOptions{Blocked: true, ToValidate: true, Done: true, Inbox: true, PendingRequest: true, Deadline: true, DeadlineHour: 9},
+	}
 }
 
 type Server struct {
 	svc      *board.Service
 	resolver identity.Resolver
 	approver Approver
+	notifier Notifier
 	token    string
 	opts     Options
 	log      *slog.Logger
 	mcp      *mcp.Server
 	locked   atomic.Bool
 	hub      hub
+	pages    broadcaster
+	web      webAuth
+	wake     chan struct{}
+	clock    func() time.Time
 }
 
-func New(svc *board.Service, resolver identity.Resolver, approver Approver, token string, opts Options, log *slog.Logger) *Server {
-	s := &Server{svc: svc, resolver: resolver, approver: approver, token: token, opts: opts, log: log, hub: hub{waiters: map[int64][]chan struct{}{}}}
+func New(svc *board.Service, resolver identity.Resolver, approver Approver, notifier Notifier, token string, opts Options, log *slog.Logger) *Server {
+	s := &Server{
+		svc: svc, resolver: resolver, approver: approver, notifier: notifier, token: token, opts: opts, log: log,
+		hub:   hub{waiters: map[int64][]chan struct{}{}},
+		pages: broadcaster{subs: map[chan struct{}]struct{}{}},
+		web:   webAuth{links: map[string]time.Time{}, sessions: map[string]webSession{}},
+		wake:  make(chan struct{}, 1),
+		clock: time.Now,
+	}
 	s.locked.Store(opts.UnlockAtStart)
 	s.mcp = mcp.NewServer(&mcp.Implementation{Name: "board", Version: "0.2.0"}, &mcp.ServerOptions{Instructions: instructions})
 	s.registerTools()
@@ -87,9 +102,10 @@ func (s *Server) Handler(addr string) http.Handler {
 		SessionTimeout: time.Hour,
 	}))
 	s.registerAPI(mux)
+	s.registerWeb(mux)
 	var h http.Handler = mux
 	h = s.identify(h)
-	h = requireToken(s.token, h)
+	h = s.authenticate(h)
 	h = http.NewCrossOriginProtection().Handler(h)
 	return requireHost(addr, h)
 }
@@ -111,6 +127,7 @@ func (s *Server) Unlock(ctx context.Context) (bool, error) {
 	}
 	s.locked.Store(false)
 	s.log.Info("board unlocked", "proof", s.approver.Proof())
+	s.changed()
 	return true, nil
 }
 
@@ -154,6 +171,7 @@ func (s *Server) confirmRequest(ctx context.Context, r board.Request, cancelRefu
 		return board.Outcome{}, false
 	}
 	s.hub.notify(r.ID)
+	s.changed()
 	if err != nil {
 		return board.Outcome{Status: board.StatusFailed, Message: err.Error()}, true
 	}
@@ -172,13 +190,15 @@ func reasonFor(r board.Request) string {
 // settle gives the owner the chance to answer a fresh request while the
 // session's call waits.
 func (s *Server) settle(ctx context.Context, out board.Outcome) board.Outcome {
-	if out.Status != board.StatusPendingApproval || out.Request == nil || !s.opts.PromptOnRequest {
+	if out.Status != board.StatusPendingApproval || out.Request == nil {
 		return out
 	}
-	decided, ok := s.confirmRequest(ctx, *out.Request, true)
-	if ok {
-		return decided
+	if s.opts.PromptOnRequest {
+		if decided, ok := s.confirmRequest(ctx, *out.Request, true); ok {
+			return decided
+		}
 	}
+	s.notifyPending(*out.Request)
 	out.Message = fmt.Sprintf("%s has not answered yet. Request #%d stays pending: tell them, and run `board wait %d` in the background (it exits once they decide) instead of retrying.",
 		s.svc.Settings().OwnerName, out.Request.ID, out.Request.ID)
 	return out
@@ -192,17 +212,6 @@ func requireHost(addr string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !allowed[r.Host] {
 			http.Error(w, "forbidden host", http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func requireToken(token string, next http.Handler) http.Handler {
-	want := []byte("Bearer " + token)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), want) != 1 {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r)

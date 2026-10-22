@@ -18,6 +18,7 @@ import (
 
 	"board/internal/board"
 	"board/internal/identity"
+	"board/internal/notify"
 	"board/internal/server"
 	"board/internal/touchid"
 )
@@ -71,10 +72,11 @@ func runDaemon(args []string) error {
 		return err
 	}
 	approver := touchid.New(os.Getenv("BOARD_BIOMETRICS_ONLY") == "1")
-	app := server.New(svc, resolver, approver, token, server.DefaultOptions(), log)
+	app := server.New(svc, resolver, approver, notify.MacOS{Log: log}, token, server.DefaultOptions(), log)
 	srv := app.HTTPServer(ln)
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
+	go app.Run(ctx)
 	log.Info("board daemon listening", "addr", ln.Addr().String(), "home", home, "claude_prefixes", resolver.ClaudePrefixes, "proof", approver.Proof())
 	go func() {
 		unlocked, err := app.Unlock(ctx)

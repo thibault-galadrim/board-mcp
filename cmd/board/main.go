@@ -31,6 +31,7 @@ const usage = `board - tableau partagé entre toi et tes sessions Claude
   board refuse <id> [-r motif]         refuse une demande
   board wait <id> [-timeout 12h]       attend la décision (pour les sessions)
   board unlock                         déverrouille le board (Touch ID)
+  board open                           ouvre la page du board dans le navigateur
 
 Environnement : BOARD_HOME (défaut ~/.board), BOARD_ADDR (défaut 127.0.0.1:7391).
 `

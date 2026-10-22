@@ -59,7 +59,7 @@ type Ticket struct {
 	Overdue   bool     `json:"overdue,omitempty"`
 	Silent    bool     `json:"silent,omitempty"`
 
-	ownerActivityAt string
+	OwnerActivityAt string `json:"owner_activity_at,omitempty"`
 }
 
 type Event struct {

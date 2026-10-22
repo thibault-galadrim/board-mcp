@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"strconv"
 	"time"
 
@@ -128,6 +129,22 @@ func runApprovals(cmd string, args []string) (bool, error) {
 			return true, err
 		}
 		return true, waitFor(id, *timeout)
+
+	case "open":
+		a, err := newAPI()
+		if err != nil {
+			return true, err
+		}
+		var out struct {
+			URL string `json:"url"`
+		}
+		if _, err := a.do(http.MethodPost, "/api/login-link", &out); err != nil {
+			return true, err
+		}
+		if err := exec.Command("/usr/bin/open", out.URL).Run(); err != nil {
+			return true, fmt.Errorf("open the page yourself within a minute: %s (%w)", out.URL, err)
+		}
+		return true, nil
 
 	case "unlock":
 		a, err := newAPI()

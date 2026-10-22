@@ -100,6 +100,7 @@ func (s *Server) registerTools() {
 				}
 				created = s.settle(ctx, created)
 				out.Created = &created
+				s.changed()
 			}
 			out.Projects, err = s.svc.Projects(ctx)
 			return nil, out, err
@@ -185,6 +186,7 @@ func (s *Server) outcome(ctx context.Context, req *mcp.CallToolRequest, as strin
 	out, err := fn(c)
 	if err == nil {
 		out = s.settle(ctx, out)
+		s.changed()
 	}
 	s.log.Info("tool", "tool", req.Params.Name, "actor", c.Name, "identity", c.Identity, "status", out.Status, "err", err)
 	return nil, out, err

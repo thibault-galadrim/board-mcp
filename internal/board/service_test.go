@@ -558,3 +558,79 @@ func TestSettingsValidation(t *testing.T) {
 		t.Fatal("an undefined mode must be rejected")
 	}
 }
+
+func TestMigrationFromSchemaOne(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(schema); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO meta (key, value) VALUES ('schema_version', '1')"); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	upgraded, err := OpenDB(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upgraded.Close()
+	var version string
+	if err := upgraded.QueryRow("SELECT value FROM meta WHERE key = 'schema_version'").Scan(&version); err != nil || version != fmt.Sprint(schemaVersion) {
+		t.Fatalf("version %q, err %v", version, err)
+	}
+	if _, err := upgraded.Exec("INSERT INTO notified (ticket_id, kind, day) VALUES (1, 'x', 'y')"); err == nil {
+		t.Fatal("the foreign key to tickets must hold in the migrated table")
+	}
+}
+
+func TestDeadlinesAreNotifiedOncePerDay(t *testing.T) {
+	h := newHarness(t, nil)
+	ctx := context.Background()
+	r := h.add(t, terminal, AddInput{Kind: KindReminder, Title: "recette", Due: "2026-10-23"})
+	h.add(t, terminal, AddInput{Kind: KindReminder, Title: "plus tard", Due: "2026-11-30"})
+
+	due, err := h.svc.DueOn(ctx, "2026-10-22", "2026-10-23")
+	if err != nil || len(due) != 1 || due[0].ID != r.ID {
+		t.Fatalf("%v %+v", err, due)
+	}
+	first, _ := h.svc.MarkNotified(ctx, r.ID, "due_tomorrow", "2026-10-22")
+	again, _ := h.svc.MarkNotified(ctx, r.ID, "due_tomorrow", "2026-10-22")
+	if !first || again {
+		t.Fatalf("first=%v again=%v", first, again)
+	}
+}
+
+func TestFeedAndSnapshot(t *testing.T) {
+	h := newHarness(t, autoMode)
+	ctx := context.Background()
+	start, _ := h.svc.LastEventID(ctx)
+	tk := h.todo(t, "atlas", "x", 1, "")
+	worker := h.caller(t, "worker-1")
+	h.svc.Claim(ctx, worker, tk.ID, "")
+	h.svc.Note(ctx, worker, tk.ID, "fini", StateToValidate, nil)
+	h.svc.Note(ctx, worker, tk.ID, "", StateDone, nil)
+
+	feed, err := h.svc.Feed(ctx, start, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := feed[len(feed)-1]
+	if last.Event.Kind != "state" || last.Title != "x" || last.Project != "atlas" || last.State != StateDone {
+		t.Fatalf("got %+v", last)
+	}
+	snap, err := h.svc.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Closed) != 1 || len(snap.Projects) != 2 {
+		t.Fatalf("got %+v", snap)
+	}
+	h.clock.advance(4 * 24 * time.Hour)
+	if snap, _ := h.svc.Snapshot(ctx); len(snap.Closed) != 0 {
+		t.Fatalf("closed tickets leave the page after three days, got %+v", snap.Closed)
+	}
+}

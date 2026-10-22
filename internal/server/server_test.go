@@ -39,7 +39,26 @@ type alive struct{}
 
 func (alive) Alive(string) bool { return true }
 
+type fakeNotifier struct {
+	mu   sync.Mutex
+	sent []string
+}
+
+func (f *fakeNotifier) Notify(title, subtitle, body string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sent = append(f.sent, title+" | "+subtitle+" | "+body)
+}
+
+func (f *fakeNotifier) all() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.sent...)
+}
+
 type env struct {
+	srv   *Server
+	notes *fakeNotifier
 	svc   *board.Service
 	url   string
 	base  string
@@ -52,7 +71,7 @@ var quiet = Options{ApprovalWait: time.Second, UnlockWait: time.Second}
 
 func newEnv(t *testing.T) *env { return newEnvWith(t, &fakeApprover{}, quiet) }
 
-func newEnvWith(t *testing.T, approver Approver, opts Options) *env {
+func newEnvWith(t *testing.T, approver Approver, opts Options, mutate ...func(*board.Settings)) *env {
 	t.Helper()
 	ctx := context.Background()
 	db, err := board.OpenDB(ctx, filepath.Join(t.TempDir(), "board.db"))
@@ -60,7 +79,11 @@ func newEnvWith(t *testing.T, approver Approver, opts Options) *env {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	svc, err := board.NewService(db, board.DefaultSettings(), alive{}, nil)
+	settings := board.DefaultSettings()
+	for _, m := range mutate {
+		m(&settings)
+	}
+	svc, err := board.NewService(db, settings, alive{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +97,8 @@ func newEnvWith(t *testing.T, approver Approver, opts Options) *env {
 	}
 
 	ids := &portIdentities{ports: map[int]string{}}
-	srv := New(svc, ids, approver, "secret-token", opts, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	notes := &fakeNotifier{}
+	srv := New(svc, ids, approver, notes, "secret-token", opts, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +107,7 @@ func newEnvWith(t *testing.T, approver Approver, opts Options) *env {
 	go httpSrv.Serve(ln)
 	t.Cleanup(func() { httpSrv.Close() })
 	base := "http://" + ln.Addr().String()
-	return &env{svc: svc, url: base + "/mcp", base: base, token: "secret-token", ids: ids}
+	return &env{srv: srv, notes: notes, svc: svc, url: base + "/mcp", base: base, token: "secret-token", ids: ids}
 }
 
 type headers struct {

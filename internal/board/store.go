@@ -15,7 +15,18 @@ import (
 //go:embed schema.sql
 var schema string
 
-const schemaVersion = "1"
+// migrations upgrade a database from version i+1 to i+2; schema.sql is
+// version 1. Never edit a shipped entry, append a new one.
+var migrations = []string{
+	`CREATE TABLE notified (
+		ticket_id INTEGER NOT NULL REFERENCES tickets(id),
+		kind TEXT NOT NULL,
+		day TEXT NOT NULL,
+		PRIMARY KEY (ticket_id, kind, day)
+	) WITHOUT ROWID`,
+}
+
+var schemaVersion = len(migrations) + 1
 
 // OpenDB opens the board database and takes an exclusive lock on it for the
 // life of the process: no other process (sqlite3, a script) can read or
@@ -58,21 +69,30 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	}
 	defer tx.Rollback()
 
-	var version string
-	err = tx.QueryRowContext(ctx, "SELECT value FROM meta WHERE key = 'schema_version'").Scan(&version)
+	var version int
+	err = tx.QueryRowContext(ctx, "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'schema_version'").Scan(&version)
 	switch {
 	case err == nil:
-		if version != schemaVersion {
-			return fmt.Errorf("database schema %s, binary expects %s", version, schemaVersion)
-		}
 	case isMissingTable(err):
 		if _, err := tx.ExecContext(ctx, schema); err != nil {
 			return fmt.Errorf("create schema: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO meta (key, value) VALUES ('schema_version', ?)", schemaVersion); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO meta (key, value) VALUES ('schema_version', '1')"); err != nil {
 			return err
 		}
+		version = 1
 	default:
+		return err
+	}
+	if version > schemaVersion {
+		return fmt.Errorf("database schema %d is newer than this binary (%d)", version, schemaVersion)
+	}
+	for v := version; v < schemaVersion; v++ {
+		if _, err := tx.ExecContext(ctx, migrations[v-1]); err != nil {
+			return fmt.Errorf("migrate to schema %d: %w", v+1, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE meta SET value = ? WHERE key = 'schema_version'", fmt.Sprint(schemaVersion)); err != nil {
 		return err
 	}
 	return tx.Commit()
