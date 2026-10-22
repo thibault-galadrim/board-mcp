@@ -21,6 +21,15 @@ const EVENT_LABEL = {
   request_failed: 'demande inapplicable', sent_back: 'a renvoyé le ticket', moved: 'a déplacé le ticket',
 };
 const DAY = 24 * 3600 * 1000;
+const ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#5847d8"/><g fill="#fff"><rect x="6" y="7" width="5.5" height="8" rx="1.5"/><rect x="6" y="17" width="5.5" height="6" rx="1.5" opacity=".55"/><rect x="13.25" y="7" width="5.5" height="12" rx="1.5"/><rect x="20.5" y="7" width="5.5" height="5" rx="1.5"/><rect x="20.5" y="14" width="5.5" height="11" rx="1.5" opacity=".55"/></g>BADGE</svg>';
+const BADGE = '<circle cx="25.5" cy="6.5" r="6" fill="#f0a020" stroke="#fff" stroke-width="2"/>';
+
+// The tab shows at a glance whether something waits for the owner.
+function markTab(count) {
+  document.title = count ? '(' + count + ') Board' : 'Board';
+  const svg = ICON.replace('BADGE', count ? BADGE : '');
+  document.getElementById('favicon').href = 'data:image/svg+xml,' + encodeURIComponent(svg);
+}
 
 const state = { csrf: '', owner: '', touchID: false, board: null, drawer: null, seen: new Map(), refreshing: null, tab: 'pour-toi', stale: false };
 
@@ -280,6 +289,7 @@ function render() {
     content = mine.section;
   }
   main.replaceChildren(tabBar(snap, mine.count), content);
+  markTab(mine.count);
 
   document.getElementById('counts').replaceChildren(
     h('strong', {}, mine.count + ' pour toi'), ' · ' + snap.open.filter((t) => t.kind === 'task').length + ' ouverts');

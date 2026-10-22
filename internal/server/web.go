@@ -92,7 +92,9 @@ type sessionKey struct{}
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	want := []byte("Bearer " + s.token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/login" {
+		// The icon holds nothing private, and the browser asks for it before
+		// signing in too.
+		if r.URL.Path == "/login" || r.URL.Path == "/favicon.svg" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -137,6 +139,7 @@ func (s *Server) registerWeb(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", s.static("web/index.html", "text/html; charset=utf-8"))
 	mux.HandleFunc("GET /app.js", s.static("web/app.js", "text/javascript; charset=utf-8"))
 	mux.HandleFunc("GET /app.css", s.static("web/app.css", "text/css; charset=utf-8"))
+	mux.HandleFunc("GET /favicon.svg", s.static("web/favicon.svg", "image/svg+xml"))
 	mux.HandleFunc("GET /api/session", s.apiSession)
 	mux.HandleFunc("GET /api/board", s.apiBoard)
 	mux.HandleFunc("GET /api/tickets/{id}", s.apiTicket)

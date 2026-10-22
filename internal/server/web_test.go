@@ -270,3 +270,22 @@ func TestOwnerClosesOrSendsBackFromThePage(t *testing.T) {
 		t.Fatalf("got %s", d.Ticket.State)
 	}
 }
+
+func TestFaviconIsPublicAndNothingElse(t *testing.T) {
+	e := newEnv(t)
+	res, err := http.Get(e.base + "/favicon.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK || res.Header.Get("Content-Type") != "image/svg+xml" {
+		t.Fatalf("the icon is served before signing in: %d %s", res.StatusCode, res.Header.Get("Content-Type"))
+	}
+	for _, path := range []string{"/app.js", "/api/board", "/favicon.svg/../api/board"} {
+		res, _ := http.Get(e.base + path)
+		res.Body.Close()
+		if res.StatusCode != http.StatusUnauthorized && res.StatusCode != http.StatusNotFound {
+			t.Errorf("%s must stay private, got %d", path, res.StatusCode)
+		}
+	}
+}
