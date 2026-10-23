@@ -124,7 +124,8 @@ main { padding: 20px 24px 64px; max-width: 1480px; margin: 0 auto; }
 .item .title { cursor: pointer; background: none; border: 0; padding: 0; text-align: left; overflow-wrap: anywhere; }
 .item .title:hover { text-decoration: underline; }
 .item .meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin-top: 2px; }
-.item .actions { display: flex; gap: 8px; align-items: center; }
+.actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.item .actions { justify-content: flex-end; }
 
 .k-request { color: var(--accent); }
 .k-blocked { color: var(--blocked); }
@@ -147,6 +148,7 @@ main { padding: 20px 24px 64px; max-width: 1480px; margin: 0 auto; }
 .btn-approve svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 6px; }
 .btn-refuse.confirm { border-color: var(--blocked); color: var(--blocked); }
 .feedback { font-size: 12px; color: var(--muted); }
+.feedback:empty { display: none; }
 
 /* A session's callsign keeps the same colour everywhere on the board. */
 .callsign {
@@ -189,15 +191,11 @@ main { padding: 20px 24px 64px; max-width: 1480px; margin: 0 auto; }
 
 .reminder-list { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-bottom: 18px; }
 .reminder-list h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--inbox); display: flex; gap: 8px; }
-.reminder-list ul { list-style: none; margin: 0; padding: 0; columns: 2 340px; column-gap: 28px; }
-.reminder-list li { display: grid; grid-template-columns: 112px 1fr; gap: 8px; padding: 3px 0; break-inside: avoid; font-size: 13px; }
-.reminder-list li .due { color: var(--muted); font-size: 12px; }
-.reminder-list li .due.overdue { color: var(--blocked); }
-.reminder-list button { background: none; border: 0; padding: 0; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
-.reminder-list button:hover { text-decoration: underline; }
+.reminder-list .due { color: var(--muted); font-size: 12px; }
+.reminder-list .due.overdue { color: var(--blocked); }
 .empty-project { color: var(--muted); }
 
-.sendback { font: inherit; padding: 5px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink); min-width: 220px; }
+.comment { font: inherit; padding: 5px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink); width: 220px; max-width: 100%; }
 
 .project { margin-bottom: 32px; }
 .project-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }

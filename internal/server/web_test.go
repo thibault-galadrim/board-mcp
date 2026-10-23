@@ -271,6 +271,46 @@ func TestOwnerClosesOrSendsBackFromThePage(t *testing.T) {
 	}
 }
 
+func TestOwnerSettlesRemindersFromThePage(t *testing.T) {
+	opts := quiet
+	opts.Notify = DefaultOptions().Notify
+	e := newEnvWith(t, &fakeApprover{}, opts, autoBoard)
+	ctx := context.Background()
+	owner := board.Caller{Identity: identity.Terminal, Name: board.TerminalName, Terminal: true}
+	remind := func(title string) int64 {
+		out, err := e.svc.Add(ctx, owner, board.AddInput{Kind: board.KindReminder, Project: "atlas", Title: title, Due: "2026-12-01"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out.Ticket.ID
+	}
+	called, skipped := remind("appeler le comptable"), remind("relancer le devis")
+	start, _ := e.svc.LastEventID(ctx)
+
+	if status, _ := e.postJSON(t, "claude:A", "/api/tickets/"+itoa(skipped)+"/drop", `{"text":"x"}`); status != http.StatusForbidden {
+		t.Fatalf("a session cannot settle the owner's reminder, got %d", status)
+	}
+	for id, step := range map[int64]struct {
+		path, text string
+		want       board.State
+	}{
+		called:  {"close", "rendez-vous lundi", board.StateDone},
+		skipped: {"drop", "plus d'actualité", board.StateDropped},
+	} {
+		status, body := e.postJSON(t, identity.Terminal, "/api/tickets/"+itoa(id)+"/"+step.path, `{"text":"`+step.text+`"}`)
+		d, _ := e.svc.Show(ctx, id)
+		last := d.Events[len(d.Events)-1]
+		if status != http.StatusOK || body["status"] != board.StatusOK || d.Ticket.State != step.want || last.Body != step.text || last.Proof != "owner" {
+			t.Fatalf("%s: %d %v, ticket %s, last event %+v", step.path, status, body, d.Ticket.State, last)
+		}
+	}
+
+	e.srv.scan(ctx, start)
+	if sent := e.notes.all(); len(sent) != 0 {
+		t.Fatalf("the owner is not notified of what they just did, got %q", sent)
+	}
+}
+
 func TestFaviconIsPublicAndNothingElse(t *testing.T) {
 	e := newEnv(t)
 	res, err := http.Get(e.base + "/favicon.svg")

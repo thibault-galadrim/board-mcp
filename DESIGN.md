@@ -175,3 +175,4 @@ Niveaux écartés le 22/10, réutilisables plus tard :
 | 9 | Sécurité = aucune faille pour le Mac, pas de Touch ID opposé aux sessions : la parole du propriétaire (terminal, page, `owner_asked`) suffit | fait |
 | 10 | Sans sa parole : pas de file ni de clic, la session lui pose la question (`queue` en option) | fait |
 | 11 | Plus de verrou au démarrage ; réglages appliqués à l'enregistrement, avec notification (`touch_id` en option) | fait |
+| 12 | Rappels (23/10) : « Fait » ou « Pas fait » depuis la page, avec un commentaire facultatif qui va au journal (bandeau « Pour toi », onglet du projet, fiche) ; « pas fait » abandonne le rappel. Ses propres gestes ne le notifient plus | fait |

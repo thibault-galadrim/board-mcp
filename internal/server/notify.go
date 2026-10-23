@@ -95,6 +95,10 @@ func (s *Server) scan(ctx context.Context, last int64) int64 {
 }
 
 func (s *Server) noteFor(item board.FeedItem) (note, bool) {
+	// The owner knows what they just did themselves.
+	if item.Actor == board.TerminalName {
+		return note{}, false
+	}
 	ref := fmt.Sprintf("#%d %s", item.TicketID, item.Title)
 	switch item.Event.Kind {
 	case "created":
@@ -102,7 +106,7 @@ func (s *Server) noteFor(item board.FeedItem) (note, bool) {
 			State board.State `json:"state"`
 		}
 		_ = json.Unmarshal([]byte(item.Data), &data)
-		if s.options().Notify.Inbox && data.State == board.StateInbox && item.Actor != board.TerminalName {
+		if s.options().Notify.Inbox && data.State == board.StateInbox {
 			return note{"Trouvaille" + inProject(item.Project), ref, "déposée par " + item.Actor}, true
 		}
 	case "state":

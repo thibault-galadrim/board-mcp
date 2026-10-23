@@ -52,7 +52,7 @@ func TestPreview(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	owner := board.Caller{Identity: "terminal", Name: board.TerminalName, Terminal: true}
+	owner := board.Caller{Identity: "terminal", Name: board.TerminalName, Terminal: true, Vouched: true}
 	approve := func(out board.Outcome, err error) board.Outcome {
 		if err != nil {
 			t.Fatal(err)

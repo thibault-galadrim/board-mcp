@@ -58,7 +58,12 @@ var prompting = Options{TouchID: true, Prompt: PromptAlways, ApprovalWait: 300 *
 
 func (e *env) post(t *testing.T, identityKey, path string) (int, map[string]any) {
 	t.Helper()
-	res, err := e.httpClient(identityKey, nil).Post(e.base+path, "application/json", nil)
+	return e.postJSON(t, identityKey, path, "")
+}
+
+func (e *env) postJSON(t *testing.T, identityKey, path, payload string) (int, map[string]any) {
+	t.Helper()
+	res, err := e.httpClient(identityKey, nil).Post(e.base+path, "application/json", strings.NewReader(payload))
 	if err != nil {
 		t.Fatal(err)
 	}

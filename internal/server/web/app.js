@@ -21,6 +21,11 @@ const EVENT_LABEL = {
   request_failed: 'demande inapplicable', sent_back: 'a renvoyé le ticket', moved: 'a déplacé le ticket',
 };
 const DAY = 24 * 3600 * 1000;
+
+// A reminder the owner did not do is dropped; say it in their words.
+function stateLabel(kind, st) {
+  return kind === 'reminder' && st === 'dropped' ? 'pas fait' : STATE_LABEL[st];
+}
 const ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#5847d8"/><g fill="#fff"><rect x="6" y="7" width="5.5" height="8" rx="1.5"/><rect x="6" y="17" width="5.5" height="6" rx="1.5" opacity=".55"/><rect x="13.25" y="7" width="5.5" height="12" rx="1.5"/><rect x="20.5" y="7" width="5.5" height="5" rx="1.5"/><rect x="20.5" y="14" width="5.5" height="11" rx="1.5" opacity=".55"/></g>BADGE</svg>';
 const BADGE = '<circle cx="25.5" cy="6.5" r="6" fill="#f0a020" stroke="#fff" stroke-width="2"/>';
 
@@ -163,7 +168,7 @@ function validationButtons(t) {
     else feedback.textContent = { ok: 'Clos', refused: 'Annulé' }[res.body.status] || res.body.message || 'En attente';
   });
   back.addEventListener('click', () => {
-    const input = h('input', { class: 'sendback', type: 'text', placeholder: 'Ce qui manque', 'aria-label': 'Ce qui manque' });
+    const input = h('input', { class: 'comment', type: 'text', placeholder: 'Ce qui manque', 'aria-label': 'Ce qui manque' });
     const send = h('button', { class: 'btn', type: 'button' }, 'Renvoyer');
     const submit = async () => {
       if (!input.value.trim()) return input.focus();
@@ -179,6 +184,27 @@ function validationButtons(t) {
     input.focus();
   });
   return box;
+}
+
+// A reminder is the owner's own task: they say whether they did it, with
+// an optional word that lands in the journal.
+function reminderButtons(t) {
+  const feedback = h('span', { class: 'feedback' });
+  const input = h('input', { class: 'comment', type: 'text', placeholder: 'Commentaire (facultatif)', 'aria-label': 'Commentaire sur « ' + t.title + ' »' });
+  const done = h('button', { class: 'btn btn-approve', type: 'button' }, state.touchID ? fingerprint() : null, 'Fait');
+  const skip = h('button', { class: 'btn', type: 'button' }, state.touchID ? fingerprint() : null, 'Pas fait');
+  const settle = (path, label) => async () => {
+    done.disabled = skip.disabled = true;
+    feedback.textContent = state.touchID ? 'Touch ID sur ton Mac…' : '';
+    const res = await api('/api/tickets/' + t.id + '/' + path, 'POST', { text: input.value.trim() });
+    done.disabled = skip.disabled = false;
+    if (res.status !== 200) feedback.textContent = (res.body && res.body.error) || 'Erreur ' + res.status;
+    else feedback.textContent = { ok: label, refused: 'Annulé' }[res.body.status] || res.body.message || 'En attente';
+    if (res.status === 200) input.blur();
+  };
+  done.addEventListener('click', settle('close', 'Fait'));
+  skip.addEventListener('click', settle('drop', 'Pas fait'));
+  return h('div', { class: 'actions' }, feedback, input, done, skip);
 }
 
 function forYou(snap) {
@@ -202,7 +228,7 @@ function forYou(snap) {
   for (const t of snap.open) if (t.state === 'blocked') line('k-blocked', 'Bloqué', t, callsign(t.owner));
   for (const t of snap.open) if (t.state === 'to_validate') line('k-validate', 'À valider', t, [callsign(t.owner), ...(t.links || []).slice(0, 1).map(safeLink)], validationButtons(t));
   const horizon = new Date(Date.now() + DAY).toISOString().slice(0, 10);
-  for (const t of snap.open) if (t.kind === 'reminder' && t.due && t.due <= horizon) line('k-reminder', 'Rappel', t, dueLabel(t));
+  for (const t of snap.open) if (t.kind === 'reminder' && t.due && t.due <= horizon) line('k-reminder', 'Rappel', t, dueLabel(t), reminderButtons(t));
   for (const t of snap.open) if (t.silent) line('k-silent', 'Silencieux', t, [callsign(t.owner), 'depuis ' + ago(t.owner_activity_at)]);
 
   const section = h('section', { class: 'foryou', 'aria-label': 'Pour toi' },
@@ -239,15 +265,16 @@ function projectSection(p, tickets, closed) {
       h('h2', {}, p.name), p.slug ? h('span', { class: 'slug' }, p.slug) : null, p.mode ? h('span', { class: 'mode' }, 'mode ' + p.mode) : null),
     reminders.length ? h('section', { class: 'reminder-list', 'aria-label': 'Rappels' },
       h('h3', {}, 'Rappels pour toi', h('span', { class: 'mono' }, reminders.length)),
-      h('ul', {}, reminders.map((t) => h('li', {},
+      reminders.map((t) => h('div', { class: 'item' },
         t.due ? dueLabel(t) : h('span', { class: 'due' }, 'sans date'),
-        h('button', { type: 'button', onclick: () => openTicket(t.id) }, t.title))))) : null,
+        h('div', { class: 'text' }, h('button', { class: 'title', type: 'button', onclick: () => openTicket(t.id) }, t.title)),
+        reminderButtons(t)))) : null,
     tasks.length ? h('div', { class: 'columns' }, columns) : h('p', { class: 'empty-project' }, 'Aucune tâche ouverte dans ce projet.'),
     closed && closed.length ? h('details', { class: 'closed' },
       h('summary', {}, 'Fermés ces 3 derniers jours (' + closed.length + ')'),
       h('ul', {}, closed.map((t) => h('li', {},
         h('span', { class: 'mono' }, '#' + t.id + ' '), h('button', { type: 'button', onclick: () => openTicket(t.id) }, t.title),
-        ' ' + STATE_LABEL[t.state])))) : null);
+        ' ' + stateLabel(t.kind, t.state))))) : null);
 }
 
 function tabFromHash() {
@@ -304,7 +331,7 @@ async function refresh() {
     if (res.status === 200) {
       state.board = res.body;
       // Never wipe what the owner is typing: render once the field is left.
-      if (document.activeElement && document.activeElement.classList.contains('sendback')) {
+      if (document.activeElement && document.activeElement.classList.contains('comment')) {
         state.stale = true;
         return;
       }
@@ -315,10 +342,15 @@ async function refresh() {
   return state.refreshing;
 }
 
-function journalLine(e) {
+function journalLine(kind, e) {
   let what = EVENT_LABEL[e.kind] || e.kind;
   if (e.kind === 'state') {
-    try { what = 'a passé le ticket en « ' + STATE_LABEL[JSON.parse(e.data).to] + ' »'; } catch { /* keep the raw kind */ }
+    try {
+      const to = JSON.parse(e.data).to;
+      what = kind === 'reminder' && (to === 'done' || to === 'dropped')
+        ? 'a marqué le rappel « ' + stateLabel(kind, to) + ' »'
+        : 'a passé le ticket en « ' + STATE_LABEL[to] + ' »';
+    } catch { /* keep the raw kind */ }
   }
   return h('li', {},
     h('time', { datetime: e.at }, shortTime(e.at)),
@@ -340,9 +372,10 @@ async function openTicket(id, quiet) {
   const content = h('div', {},
     h('h2', {}, t.title),
     h('div', { class: 'facts' },
-      h('span', { class: 'mono' }, '#' + t.id), fact(STATE_LABEL[t.state]), fact(t.project || 'sans projet'), fact('P' + t.priority), dueLabel(t),
+      h('span', { class: 'mono' }, '#' + t.id), fact(stateLabel(t.kind, t.state)), fact(t.project || 'sans projet'), fact('P' + t.priority), dueLabel(t),
       t.kind === 'reminder' ? fact('rappel pour toi') : callsign(t.owner)),
     t.state === 'to_validate' ? [h('h3', {}, 'Validation'), validationButtons(t)] : null,
+    t.kind === 'reminder' && t.state === 'todo' ? [h('h3', {}, 'Rappel'), reminderButtons(t)] : null,
     t.details ? h('pre', { class: 'details' }, t.details) : null,
     d.pending_requests && d.pending_requests.length
       ? [h('h3', {}, 'Demandes en attente'), d.pending_requests.map((r) => h('div', { class: 'item' },
@@ -355,7 +388,7 @@ async function openTicket(id, quiet) {
       : null,
     d.circle.length ? [h('h3', {}, 'Cercle'), h('div', { class: 'chips' }, d.circle.map(callsign))] : null,
     h('h3', {}, 'Journal'),
-    h('ol', { class: 'journal' }, d.events.map(journalLine)));
+    h('ol', { class: 'journal' }, d.events.map((e) => journalLine(t.kind, e))));
   document.getElementById('drawer-body').replaceChildren(content);
   const drawer = document.getElementById('drawer');
   if (drawer.hidden) {
@@ -397,7 +430,7 @@ async function init() {
   state.tab = tabFromHash();
   window.addEventListener('hashchange', () => { state.tab = tabFromHash(); render(); window.scrollTo(0, 0); });
   document.addEventListener('focusout', (e) => {
-    if (state.stale && e.target.classList && e.target.classList.contains('sendback')) {
+    if (state.stale && e.target.classList && e.target.classList.contains('comment')) {
       state.stale = false;
       setTimeout(() => { render(); if (state.drawer) openTicket(state.drawer, true); }, 200);
     }

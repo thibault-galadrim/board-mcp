@@ -7,7 +7,9 @@ import (
 	"embed"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"sync"
@@ -144,7 +146,8 @@ func (s *Server) registerWeb(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/board", s.apiBoard)
 	mux.HandleFunc("GET /api/tickets/{id}", s.apiTicket)
 	mux.HandleFunc("GET /api/events", s.apiEvents)
-	mux.HandleFunc("POST /api/tickets/{id}/close", s.ownerOnly(s.apiClose))
+	mux.HandleFunc("POST /api/tickets/{id}/close", s.ownerOnly(s.apiSetState(board.StateDone)))
+	mux.HandleFunc("POST /api/tickets/{id}/drop", s.ownerOnly(s.apiSetState(board.StateDropped)))
 	mux.HandleFunc("POST /api/tickets/{id}/send-back", s.ownerOnly(s.apiSendBack))
 }
 
@@ -156,25 +159,44 @@ func ticketID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	return 0, false
 }
 
-// apiClose closes a ticket the owner has validated. The owner is never in
-// a ticket's circle: their word applies it, or Touch ID when enabled.
-func (s *Server) apiClose(w http.ResponseWriter, r *http.Request) {
-	if s.locked.Load() {
-		writeError(w, http.StatusLocked, s.lockedError().Error())
-		return
+// ownerText reads the owner's comment from an optional JSON body.
+func ownerText(w http.ResponseWriter, r *http.Request) (string, bool) {
+	var body struct {
+		Text string `json:"text"`
 	}
-	id, ok := ticketID(w, r)
-	if !ok {
-		return
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "expected a JSON body with text")
+		return "", false
 	}
-	out, err := s.svc.Note(r.Context(), s.ownerCaller(), id, "", board.StateDone, nil)
-	if err != nil {
-		writeServiceError(w, err)
-		return
+	return body.Text, true
+}
+
+// apiSetState closes or drops a ticket on the owner's word (or Touch ID
+// when enabled): a task they validated, or a reminder they did or not.
+// The owner is never in a ticket's circle.
+func (s *Server) apiSetState(to board.State) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.locked.Load() {
+			writeError(w, http.StatusLocked, s.lockedError().Error())
+			return
+		}
+		id, ok := ticketID(w, r)
+		if !ok {
+			return
+		}
+		text, ok := ownerText(w, r)
+		if !ok {
+			return
+		}
+		out, err := s.svc.Note(r.Context(), s.ownerCaller(), id, text, to, nil)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		out = s.settle(r.Context(), out, true)
+		s.changed()
+		writeJSON(w, http.StatusOK, out)
 	}
-	out = s.settle(r.Context(), out, true)
-	s.changed()
-	writeJSON(w, http.StatusOK, out)
 }
 
 // apiSendBack returns a ticket awaiting validation to its session with the
@@ -188,14 +210,11 @@ func (s *Server) apiSendBack(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var body struct {
-		Text string `json:"text"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "expected a JSON body with text")
+	text, ok := ownerText(w, r)
+	if !ok {
 		return
 	}
-	out, err := s.svc.SendBack(r.Context(), s.ownerCaller(), id, body.Text)
+	out, err := s.svc.SendBack(r.Context(), s.ownerCaller(), id, text)
 	if err != nil {
 		writeServiceError(w, err)
 		return
