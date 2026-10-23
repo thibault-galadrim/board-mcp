@@ -30,10 +30,10 @@ const usage = `board - tableau partagé entre toi et tes sessions Claude
   board move <id> -p <projet> [-r motif]       déplace un ticket (et ses sous-tickets)
 
   board requests                       demandes en attente de ta validation
-  board ok <id>                        valide une demande (Touch ID)
+  board ok <id>                        valide une demande en file (option queue)
   board refuse <id> [-r motif]         refuse une demande
   board wait <id> [-timeout 12h]       attend la décision (pour les sessions)
-  board unlock                         déverrouille le board (Touch ID)
+  board unlock                         déverrouille le board (option touch_id)
   board open                           ouvre la page du board dans le navigateur
 
   board config                         affiche ~/.board/config.toml
@@ -41,7 +41,7 @@ const usage = `board - tableau partagé entre toi et tes sessions Claude
   board uninstall                      les retire (tes données restent)
 
 Une session Claude qui agit parce que tu le lui as demandé ajoute -asked :
-l'invite Touch ID s'affiche alors tout de suite au lieu d'attendre dans la file.
+ta parole suffit, l'action s'applique.
 
 Environnement : BOARD_HOME (défaut ~/.board), BOARD_ADDR (défaut 127.0.0.1:7391),
 BOARD_AS (nom de la session qui utilise la commande, défaut « cli »).

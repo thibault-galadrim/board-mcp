@@ -165,7 +165,7 @@ func runInstall() error {
   démon         %s, lancé à chaque ouverture de session
   MCP           « board » enregistré pour toutes tes sessions Claude
 
-Une invite Touch ID va te demander de déverrouiller le board.
+Relance board open : la page se déconnecte à chaque redémarrage du démon.
 Les nouvelles sessions Claude voient le board ; une session déjà ouverte le verra une fois relancée.
 `, bin, boardDir, plist)
 	return nil
