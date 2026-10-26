@@ -2,7 +2,7 @@
 
 > Un Trello local partagé entre Thibault et ses sessions Claude Code.
 > Idée née dans un échange avec un collègue le 22/10/2026, arbitrée le même jour.
-> Version locale d'abord. Le partage (page, dépôt distant) se décidera plus tard.
+> Dépôt public depuis le 26/10. Usage dans le [README](README.md), code dans [docs/architecture.md](docs/architecture.md), règle des contributions dans [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Principes
 
@@ -160,7 +160,7 @@ Niveaux écartés le 22/10, réutilisables plus tard :
 
 1. Les deux MCP Grafana lancent un `docker run` par session : 18 conteneurs, soit environ 340 Mo dans la VM Docker le 22/10. Les passer en un seul conteneur partagé.
 
-## Arbitrages du 22/10 (après la mise en service)
+## Arbitrages depuis la mise en service (22/10)
 
 | # | Décision | Qualification |
 |---|---|---|
@@ -176,3 +176,5 @@ Niveaux écartés le 22/10, réutilisables plus tard :
 | 10 | Sans sa parole : pas de file ni de clic, la session lui pose la question (`queue` en option) | fait |
 | 11 | Plus de verrou au démarrage ; réglages appliqués à l'enregistrement, avec notification (`touch_id` en option) | fait |
 | 12 | Rappels (23/10) : « Fait » ou « Pas fait » depuis la page, avec un commentaire facultatif qui va au journal (bandeau « Pour toi », onglet du projet, fiche) ; « pas fait » abandonne le rappel. Ses propres gestes ne le notifient plus | fait |
+| 13 | Dépôt (26/10) : public sur GitHub, historique anonymisé avant le premier push (noms de clients et de collègues remplacés par `atlas`, `orion`, `zephyr`) | fait |
+| 14 | Contributions (26/10) : une seule vraie règle, rien de non rétrocompatible ([CONTRIBUTING.md](CONTRIBUTING.md)) ; README, CLAUDE.md, architecture et skill `use-board` dans le dépôt | fait |
